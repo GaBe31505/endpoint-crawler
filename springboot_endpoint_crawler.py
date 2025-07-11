@@ -83,6 +83,34 @@ class SpringBootEndpointCrawler:
         self.path_pattern = re.compile(r'(?:value\s*=\s*|path\s*=\s*)?["\']([^"\']+)["\']')
         self.method_attr_pattern = re.compile(r'method\s*=\s*RequestMethod\.(\w+)')
         
+    def _read_file_safely(self, file_path: Path) -> Optional[str]:
+        """Safely read file content with multiple encoding attempts"""
+        encodings = ['utf-8', 'utf-8-sig', 'latin-1', 'cp1252', 'iso-8859-1']
+        
+        for encoding in encodings:
+            try:
+                with open(file_path, 'r', encoding=encoding) as f:
+                    content = f.read()
+                    logger.debug(f"Successfully read {file_path} with {encoding} encoding")
+                    return content
+            except UnicodeDecodeError:
+                continue
+            except Exception as e:
+                logger.error(f"Error reading file {file_path} with {encoding}: {e}")
+                continue
+        
+        # If all encodings fail, try binary read and decode with error handling
+        try:
+            with open(file_path, 'rb') as f:
+                raw_content = f.read()
+                # Try to decode with error handling
+                content = raw_content.decode('utf-8', errors='replace')
+                logger.warning(f"Read {file_path} with UTF-8 and replaced invalid characters")
+                return content
+        except Exception as e:
+            logger.error(f"Failed to read file {file_path} with any encoding: {e}")
+            return None
+        
     def find_java_files(self, root_paths: List[str]) -> None:
         """Find all Java files in the given root paths"""
         for root_path in root_paths:
@@ -90,16 +118,42 @@ class SpringBootEndpointCrawler:
             if not root.exists():
                 logger.warning(f"Path does not exist: {root_path}")
                 continue
+            
+            logger.info(f"Scanning directory: {root_path}")
+            
+            try:
+                # Find Java files
+                java_files = []
+                for java_file in root.rglob("*.java"):
+                    try:
+                        # Quick check if file is readable
+                        if java_file.is_file() and java_file.stat().st_size > 0:
+                            java_files.append(java_file)
+                    except (OSError, PermissionError) as e:
+                        logger.warning(f"Cannot access file {java_file}: {e}")
+                        continue
                 
-            # Find Java files
-            java_files = list(root.rglob("*.java"))
-            self.java_files.extend(java_files)
-            
-            # Find YAML/Properties files for configuration
-            yaml_files = list(root.rglob("*.yml")) + list(root.rglob("*.yaml")) + list(root.rglob("*.properties"))
-            self.yaml_files.extend(yaml_files)
-            
-        logger.info(f"Found {len(self.java_files)} Java files and {len(self.yaml_files)} config files")
+                self.java_files.extend(java_files)
+                
+                # Find YAML/Properties files for configuration
+                yaml_files = []
+                for pattern in ["*.yml", "*.yaml", "*.properties"]:
+                    for config_file in root.rglob(pattern):
+                        try:
+                            if config_file.is_file() and config_file.stat().st_size > 0:
+                                yaml_files.append(config_file)
+                        except (OSError, PermissionError) as e:
+                            logger.warning(f"Cannot access config file {config_file}: {e}")
+                            continue
+                
+                self.yaml_files.extend(yaml_files)
+                logger.info(f"Found {len(java_files)} Java files and {len(yaml_files)} config files in {root_path}")
+                
+            except Exception as e:
+                logger.error(f"Error scanning directory {root_path}: {e}")
+                continue
+        
+        logger.info(f"Total: {len(self.java_files)} Java files and {len(self.yaml_files)} config files")
     
     def extract_path_from_annotation(self, annotation_content: str) -> Tuple[str, Optional[str]]:
         """Extract path and method from annotation content"""
@@ -167,11 +221,8 @@ class SpringBootEndpointCrawler:
     
     def analyze_java_file(self, file_path: Path) -> None:
         """Analyze a single Java file for endpoints"""
-        try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-        except Exception as e:
-            logger.error(f"Error reading file {file_path}: {e}")
+        content = self._read_file_safely(file_path)
+        if content is None:
             return
         
         # Check if this is a controller class
@@ -243,10 +294,11 @@ class SpringBootEndpointCrawler:
         context_path = ""
         
         for config_file in self.yaml_files:
+            content = self._read_file_safely(config_file)
+            if content is None:
+                continue
+                
             try:
-                with open(config_file, 'r', encoding='utf-8') as f:
-                    content = f.read()
-                    
                 # Look for server.servlet.context-path in YAML
                 yaml_match = re.search(r'server:\s*\n\s*servlet:\s*\n\s*context-path:\s*([^\n]+)', content)
                 if yaml_match:
@@ -260,7 +312,7 @@ class SpringBootEndpointCrawler:
                     break
                     
             except Exception as e:
-                logger.error(f"Error reading config file {config_file}: {e}")
+                logger.error(f"Error processing config file {config_file}: {e}")
                 
         return context_path
     

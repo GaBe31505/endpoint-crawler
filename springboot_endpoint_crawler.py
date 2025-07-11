@@ -52,7 +52,7 @@ class SpringBootEndpointCrawler:
         self.yaml_files: List[Path] = []
         
         # Spring Boot mapping annotations
-        self.mapping_annotations = {
+        self.spring_mapping_annotations = {
             'RequestMapping': 'ANY',
             'GetMapping': 'GET',
             'PostMapping': 'POST',
@@ -63,16 +63,65 @@ class SpringBootEndpointCrawler:
             'OptionsMapping': 'OPTIONS'
         }
         
+        # JAX-RS annotations
+        self.jaxrs_annotations = {
+            'GET': 'GET',
+            'POST': 'POST',
+            'PUT': 'PUT',
+            'DELETE': 'DELETE',
+            'PATCH': 'PATCH',
+            'HEAD': 'HEAD',
+            'OPTIONS': 'OPTIONS'
+        }
+        
+        # Struts annotations
+        self.struts_annotations = {
+            'Action': 'ANY',
+            'Actions': 'ANY',
+            'Result': 'ANY',
+            'Results': 'ANY'
+        }
+        
+        # Combine all annotations
+        self.all_annotations = {
+            **self.spring_mapping_annotations,
+            **self.jaxrs_annotations,
+            **self.struts_annotations
+        }
+        
         # Patterns for finding endpoints
-        self.annotation_pattern = re.compile(
-            r'@(' + '|'.join(self.mapping_annotations.keys()) + r')\s*(?:\((.*?)\))?',
+        self.spring_annotation_pattern = re.compile(
+            r'@(' + '|'.join(self.spring_mapping_annotations.keys()) + r')\s*(?:\((.*?)\))?',
             re.DOTALL
         )
         
-        self.class_annotation_pattern = re.compile(
-            r'@(RestController|Controller|RequestMapping)\s*(?:\((.*?)\))?',
+        self.jaxrs_annotation_pattern = re.compile(
+            r'@(' + '|'.join(self.jaxrs_annotations.keys()) + r')\s*(?:\((.*?)\))?',
             re.DOTALL
         )
+        
+        self.struts_annotation_pattern = re.compile(
+            r'@(' + '|'.join(self.struts_annotations.keys()) + r')\s*(?:\((.*?)\))?',
+            re.DOTALL
+        )
+        
+        # JAX-RS @Path annotation
+        self.jaxrs_path_pattern = re.compile(r'@Path\s*\(\s*["\']([^"\']+)["\']\s*\)', re.DOTALL)
+        
+        # Struts namespace and action patterns
+        self.struts_namespace_pattern = re.compile(r'@Namespace\s*\(\s*["\']([^"\']+)["\']\s*\)', re.DOTALL)
+        self.struts_action_value_pattern = re.compile(r'value\s*=\s*["\']([^"\']+)["\']', re.DOTALL)
+        
+        # Servlet annotation pattern
+        self.servlet_pattern = re.compile(r'@WebServlet\s*\([^)]*urlPatterns\s*=\s*[{"]([^}"\']+)["}][^)]*\)', re.DOTALL)
+        
+        # General class annotation patterns
+        self.controller_patterns = [
+            re.compile(r'@(RestController|Controller|RequestMapping)\s*(?:\((.*?)\))?', re.DOTALL),
+            re.compile(r'@Path\s*\(\s*["\']([^"\']+)["\']\s*\)', re.DOTALL),
+            re.compile(r'@Namespace\s*\(\s*["\']([^"\']+)["\']\s*\)', re.DOTALL),
+            re.compile(r'@WebServlet', re.DOTALL)
+        ]
         
         self.method_pattern = re.compile(
             r'(public|private|protected)?\s*[\w<>\[\],\s]*\s+(\w+)\s*\([^)]*\)\s*(?:throws[^{]*)?{',
@@ -135,19 +184,26 @@ class SpringBootEndpointCrawler:
                 
                 self.java_files.extend(java_files)
                 
-                # Find YAML/Properties files for configuration
-                yaml_files = []
-                for pattern in ["*.yml", "*.yaml", "*.properties"]:
+                # Find configuration files (expanded for legacy apps)
+                config_files = []
+                config_patterns = [
+                    "*.yml", "*.yaml", "*.properties", "*.xml",  # Standard config
+                    "web.xml", "struts.xml", "struts-config.xml",  # Legacy config
+                    "faces-config.xml", "persistence.xml",  # JEE config
+                    "application.xml", "ejb-jar.xml"  # More JEE config
+                ]
+                
+                for pattern in config_patterns:
                     for config_file in root.rglob(pattern):
                         try:
                             if config_file.is_file() and config_file.stat().st_size > 0:
-                                yaml_files.append(config_file)
+                                config_files.append(config_file)
                         except (OSError, PermissionError) as e:
                             logger.warning(f"Cannot access config file {config_file}: {e}")
                             continue
                 
-                self.yaml_files.extend(yaml_files)
-                logger.info(f"Found {len(java_files)} Java files and {len(yaml_files)} config files in {root_path}")
+                self.yaml_files.extend(config_files)
+                logger.info(f"Found {len(java_files)} Java files and {len(config_files)} config files in {root_path}")
                 
             except Exception as e:
                 logger.error(f"Error scanning directory {root_path}: {e}")
@@ -225,30 +281,62 @@ class SpringBootEndpointCrawler:
         if content is None:
             return
         
-        # Check if this is a controller class
-        if not (re.search(r'@RestController|@Controller', content)):
+    def is_web_component(self, content: str) -> bool:
+        """Check if the file contains web components (controllers, servlets, etc.)"""
+        web_indicators = [
+            # Spring
+            '@RestController', '@Controller', '@RequestMapping',
+            '@GetMapping', '@PostMapping', '@PutMapping', '@DeleteMapping',
+            # JAX-RS
+            '@Path', '@GET', '@POST', '@PUT', '@DELETE', '@PATCH',
+            # Struts
+            '@Action', '@Actions', '@Namespace', '@Result',
+            # Servlets
+            '@WebServlet', 'extends HttpServlet',
+            # JSF
+            '@ManagedBean', '@Named', '@RequestScoped', '@SessionScoped',
+            # Legacy patterns
+            'implements Action', 'extends ActionSupport',
+            'implements Controller', 'extends AbstractController'
+        ]
+        
+        return any(indicator in content for indicator in web_indicators)
+    def analyze_java_file(self, file_path: Path) -> None:
+        """Analyze a single Java file for endpoints"""
+        content = self._read_file_safely(file_path)
+        if content is None:
+            return
+        
+        # Check if this file contains web components
+        if not self.is_web_component(content):
             return
             
-        logger.debug(f"Analyzing controller: {file_path}")
+        logger.debug(f"Analyzing web component: {file_path}")
         
         # Extract class name
         class_match = re.search(r'class\s+(\w+)', content)
         class_name = class_match.group(1) if class_match else "Unknown"
         
+        # Try different framework patterns
+        self._analyze_spring_endpoints(content, class_name, file_path)
+        self._analyze_jaxrs_endpoints(content, class_name, file_path)
+        self._analyze_struts_endpoints(content, class_name, file_path)
+        self._analyze_servlet_endpoints(content, class_name, file_path)
+        self._analyze_legacy_patterns(content, class_name, file_path)
+    
+    def _analyze_spring_endpoints(self, content: str, class_name: str, file_path: Path) -> None:
+        """Analyze Spring Boot/MVC endpoints"""
         # Extract base path from class-level annotations
         base_path = self.extract_class_base_path(content)
         
-        # Split content into lines for line number tracking
-        lines = content.split('\n')
-        
-        # Find all mapping annotations
-        for match in self.annotation_pattern.finditer(content):
+        # Find all Spring mapping annotations
+        for match in self.spring_annotation_pattern.finditer(content):
             annotation_name = match.group(1)
             annotation_content = match.group(2) or ""
             
             # Determine HTTP method
-            if annotation_name in self.mapping_annotations:
-                http_method = self.mapping_annotations[annotation_name]
+            if annotation_name in self.spring_mapping_annotations:
+                http_method = self.spring_mapping_annotations[annotation_name]
             else:
                 continue
                 
@@ -260,21 +348,11 @@ class SpringBootEndpointCrawler:
                 http_method = method_override
             
             # Find the method this annotation belongs to
-            method_start = match.end()
-            method_search = content[method_start:method_start + 1000]  # Look ahead
-            method_match = self.method_pattern.search(method_search)
-            
-            if method_match:
-                method_name = method_match.group(2)
-                
-                # Find line number
+            method_name = self._find_method_name(content, match.end())
+            if method_name:
                 line_number = content[:match.start()].count('\n') + 1
+                parameters = self._extract_method_parameters(content, match.end())
                 
-                # Extract method parameters
-                full_method = content[method_start:method_start + method_match.end()]
-                parameters = self.extract_method_parameters(full_method)
-                
-                # Create endpoint
                 endpoint = Endpoint(
                     path=path,
                     method=http_method,
@@ -285,9 +363,172 @@ class SpringBootEndpointCrawler:
                     base_path=base_path,
                     parameters=parameters
                 )
-                
                 self.endpoints.append(endpoint)
-                logger.debug(f"Found endpoint: {http_method} {endpoint.full_path}")
+                logger.debug(f"Found Spring endpoint: {http_method} {endpoint.full_path}")
+    
+    def _analyze_jaxrs_endpoints(self, content: str, class_name: str, file_path: Path) -> None:
+        """Analyze JAX-RS endpoints"""
+        # Extract base path from @Path annotation on class
+        base_path = ""
+        class_path_match = self.jaxrs_path_pattern.search(content.split('class')[0] if 'class' in content else content)
+        if class_path_match:
+            base_path = class_path_match.group(1)
+        
+        # Find all JAX-RS HTTP method annotations
+        for match in self.jaxrs_annotation_pattern.finditer(content):
+            annotation_name = match.group(1)
+            http_method = self.jaxrs_annotations.get(annotation_name, 'ANY')
+            
+            # Look for @Path annotation near this method
+            method_start = match.end()
+            method_section = content[method_start:method_start + 500]
+            
+            path = ""
+            path_match = self.jaxrs_path_pattern.search(method_section)
+            if path_match:
+                path = path_match.group(1)
+            
+            method_name = self._find_method_name(content, method_start)
+            if method_name:
+                line_number = content[:match.start()].count('\n') + 1
+                parameters = self._extract_jaxrs_parameters(content, match.end())
+                
+                endpoint = Endpoint(
+                    path=path,
+                    method=http_method,
+                    controller_class=class_name,
+                    method_name=method_name,
+                    file_path=str(file_path),
+                    line_number=line_number,
+                    base_path=base_path,
+                    parameters=parameters
+                )
+                self.endpoints.append(endpoint)
+                logger.debug(f"Found JAX-RS endpoint: {http_method} {endpoint.full_path}")
+    
+    def _analyze_struts_endpoints(self, content: str, class_name: str, file_path: Path) -> None:
+        """Analyze Struts 2 endpoints"""
+        # Extract namespace from @Namespace annotation
+        base_path = ""
+        namespace_match = self.struts_namespace_pattern.search(content)
+        if namespace_match:
+            base_path = namespace_match.group(1)
+        
+        # Find @Action annotations
+        for match in self.struts_annotation_pattern.finditer(content):
+            annotation_name = match.group(1)
+            annotation_content = match.group(2) or ""
+            
+            if annotation_name in ['Action', 'Actions']:
+                # Extract action value
+                action_match = self.struts_action_value_pattern.search(annotation_content)
+                if action_match:
+                    action_path = action_match.group(1)
+                    
+                    method_name = self._find_method_name(content, match.end())
+                    if method_name:
+                        line_number = content[:match.start()].count('\n') + 1
+                        
+                        endpoint = Endpoint(
+                            path=action_path,
+                            method='ANY',  # Struts actions can handle any HTTP method
+                            controller_class=class_name,
+                            method_name=method_name,
+                            file_path=str(file_path),
+                            line_number=line_number,
+                            base_path=base_path,
+                            parameters=[]
+                        )
+                        self.endpoints.append(endpoint)
+                        logger.debug(f"Found Struts endpoint: {endpoint.full_path}")
+    
+    def _analyze_servlet_endpoints(self, content: str, class_name: str, file_path: Path) -> None:
+        """Analyze Servlet endpoints"""
+        # Find @WebServlet annotations
+        for match in self.servlet_pattern.finditer(content):
+            url_pattern = match.group(1)
+            
+            # Servlets typically handle multiple HTTP methods
+            for method in ['GET', 'POST', 'PUT', 'DELETE']:
+                method_name = f"do{method.capitalize()}"
+                if method_name in content:
+                    line_number = content[:match.start()].count('\n') + 1
+                    
+                    endpoint = Endpoint(
+                        path=url_pattern,
+                        method=method,
+                        controller_class=class_name,
+                        method_name=method_name,
+                        file_path=str(file_path),
+                        line_number=line_number,
+                        base_path="",
+                        parameters=[]
+                    )
+                    self.endpoints.append(endpoint)
+                    logger.debug(f"Found Servlet endpoint: {method} {endpoint.full_path}")
+    
+    def _analyze_legacy_patterns(self, content: str, class_name: str, file_path: Path) -> None:
+        """Analyze legacy framework patterns"""
+        # Spring MVC legacy patterns
+        if 'implements Controller' in content or 'extends AbstractController' in content:
+            # Look for handleRequest method
+            if 'handleRequest' in content:
+                endpoint = Endpoint(
+                    path=f"/{class_name.lower()}",  # Common convention
+                    method='ANY',
+                    controller_class=class_name,
+                    method_name='handleRequest',
+                    file_path=str(file_path),
+                    line_number=1,  # Approximate
+                    base_path="",
+                    parameters=[]
+                )
+                self.endpoints.append(endpoint)
+                logger.debug(f"Found legacy Controller endpoint: {endpoint.full_path}")
+        
+        # Struts 1 Action patterns
+        if 'implements Action' in content or 'extends ActionSupport' in content:
+            if 'execute' in content:
+                endpoint = Endpoint(
+                    path=f"/{class_name.replace('Action', '').lower()}",
+                    method='ANY',
+                    controller_class=class_name,
+                    method_name='execute',
+                    file_path=str(file_path),
+                    line_number=1,
+                    base_path="",
+                    parameters=[]
+                )
+                self.endpoints.append(endpoint)
+                logger.debug(f"Found Struts Action endpoint: {endpoint.full_path}")
+    
+    def _find_method_name(self, content: str, start_pos: int) -> Optional[str]:
+        """Find the method name following an annotation"""
+        method_search = content[start_pos:start_pos + 1000]
+        method_match = self.method_pattern.search(method_search)
+        return method_match.group(2) if method_match else None
+    
+    def _extract_method_parameters(self, content: str, start_pos: int) -> List[str]:
+        """Extract method parameters from Spring annotations"""
+        method_section = content[start_pos:start_pos + 1000]
+        return self.extract_method_parameters(method_section)
+    
+    def _extract_jaxrs_parameters(self, content: str, start_pos: int) -> List[str]:
+        """Extract JAX-RS parameters"""
+        parameters = []
+        method_section = content[start_pos:start_pos + 1000]
+        
+        # Look for @PathParam annotations
+        path_param_pattern = re.compile(r'@PathParam\s*\(\s*["\']([^"\']+)["\']\s*\)')
+        path_params = path_param_pattern.findall(method_section)
+        parameters.extend(path_params)
+        
+        # Look for @QueryParam annotations
+        query_param_pattern = re.compile(r'@QueryParam\s*\(\s*["\']([^"\']+)["\']\s*\)')
+        query_params = query_param_pattern.findall(method_section)
+        parameters.extend([f"{p}(query)" for p in query_params])
+        
+        return parameters
     
     def get_server_context_path(self) -> str:
         """Extract server context path from configuration files"""

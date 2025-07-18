@@ -1,176 +1,161 @@
-# Spring Boot Endpoint Crawler
-Simple python script that analyzes Spring Boot source code repositories to automatically discover and catalog all REST endpoints.
+# 🕵️ Endpoint Crawler
 
-## 🚀 Features
+A comprehensive Python-based tool to discover REST/API endpoints across multiple frameworks and packaging formats, including:
 
-- **Endpoint Discovery**: Finds all REST endpoints using Spring Boot annotations
-- **Multi-Repository Support**: Analyze multiple repositories simultaneously
-- **Complete URL Construction**: Combines base paths, class-level mappings, and server context paths
-- **Parameter Detection**: Identifies path variables and request parameters
-- **Multiple Output Formats**: JSON, CSV, Markdown, and plain text reports
-- **Configuration Analysis**: Reads application properties and YAML files for context paths
-- **Detailed Reporting**: Includes controller classes, method names, file locations, and line numbers
-
-## 📋 Requirements
-
-- Python 3.6+
-- Spring Boot projects with standard annotation patterns
-
-## 🛠️ Installation
-
-1. Clone this repository:
-```bash
-git clone https://github.com/yourusername/springboot-endpoint-crawler.git
-cd springboot-endpoint-crawler
-```
-
-2. Make the script executable:
-```bash
-chmod +x springboot_crawler.py
-```
-
-## 🔧 Usage
-
-### Basic Usage
-
-Analyze a single Spring Boot repository:
-```bash
-python3 springboot_crawler.py /path/to/springboot/repo
-```
-
-### Multiple Repositories
-
-Analyze multiple repositories at once:
-```bash
-python3 springboot_crawler.py /path/to/repo1 /path/to/repo2 /path/to/repo3
-```
-
-### Output Formats
-
-Generate reports in different formats:
-```bash
-# JSON output (default)
-python3 springboot_crawler.py /path/to/repo -f json -o endpoints.json
-
-# CSV format
-python3 springboot_crawler.py /path/to/repo -f csv -o endpoints.csv
-
-# Markdown format
-python3 springboot_crawler.py /path/to/repo -f markdown -o endpoints.md
-
-# Plain text format
-python3 springboot_crawler.py /path/to/repo -f text -o endpoints.txt
-```
-
-### Command Line Options
-
-```bash
-python3 springboot_crawler.py [OPTIONS] PATHS...
-
-Arguments:
-  PATHS...                One or more root paths to crawl
-
-Options:
-  -o, --output PATH       Output file path
-  -f, --format FORMAT     Output format: json, csv, markdown, text (default: json)
-  -v, --verbose          Enable verbose logging
-  -h, --help             Show help message
-```
-
-## 📊 Supported Annotations
-
-The crawler detects the following Spring Boot annotations:
-
-- `@RequestMapping` - Generic request mapping
-- `@GetMapping` - HTTP GET requests
-- `@PostMapping` - HTTP POST requests
-- `@PutMapping` - HTTP PUT requests
-- `@DeleteMapping` - HTTP DELETE requests
-- `@PatchMapping` - HTTP PATCH requests
-- `@HeadMapping` - HTTP HEAD requests
-- `@OptionsMapping` - HTTP OPTIONS requests
-
-## 🔍 What It Finds
-
-The crawler identifies and reports:
-
-- **Complete URL paths** including context paths and base paths
-- **HTTP methods** (GET, POST, PUT, DELETE, etc.)
-- **Controller classes** and method names
-- **File locations** and line numbers
-- **Path variables** (`@PathVariable`)
-- **Request parameters** (`@RequestParam`)
-- **Server context paths** from configuration files
-
-## 📄 Sample Output
-
-### JSON Format
-```json
-{
-  "total_endpoints": 12,
-  "endpoints": [
-    {
-      "method": "GET",
-      "path": "/api/v1/users/{id}",
-      "controller": "UserController",
-      "method_name": "getUser",
-      "file_path": "/src/main/java/com/example/UserController.java",
-      "line_number": 45,
-      "parameters": ["id"]
-    }
-  ]
-}
-```
-
-### Markdown Format
-```markdown
-# Spring Boot Endpoints Report
-Total endpoints found: 12
-
-## Endpoints
-| Method | Path | Controller | Method Name | File | Line |
-|--------|------|------------|-------------|------|------|
-| GET | /api/v1/users/{id} | UserController | getUser | UserController.java | 45 |
-| POST | /api/v1/users | UserController | createUser | UserController.java | 52 |
-```
-
-## 🏗️ Project Structure
-
-```
-springboot-endpoint-crawler/
-├── springboot_crawler.py    # Main crawler script
-├── README.md               # This file
-├── LICENSE                 # License file
-└── examples/               # Example output files
-    ├── sample_output.json
-    ├── sample_output.csv
-    └── sample_output.md
-```
-
-## 🎯 Use Cases
-
-- **API Documentation**: Generate comprehensive endpoint inventories
-- **Security Audits**: Identify all exposed endpoints across microservices
-- **DevOps**: Automate endpoint discovery in CI/CD pipelines
-- **Code Reviews**: Understand API surface area changes
-- **Migration Planning**: Catalog endpoints before refactoring
-- **Testing**: Ensure comprehensive API test coverage
-
-## 🔧 Configuration Support
-
-The crawler reads configuration from:
-- `application.yml` / `application.yaml`
-- `application.properties`
-- Environment-specific config files
-
-It extracts:
-- Server context paths (`server.servlet.context-path`)
-- Port configurations
-- Base URL configurations
-
-## 📝 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+- ✅ **Spring Boot** (`@RequestMapping`, `@GetMapping`, etc.)
+- ✅ **Servlets** (`@WebServlet`)
+- ✅ **Struts 1.x / 2.x**
+- ✅ **JAX-RS**
+- ✅ **Express.js** (Node.js)
+- ✅ **Angular Router** (AngularJS & Angular 2+)
+- ✅ **YAML/Properties config** (for `server.servlet.context-path`)
+- ✅ **Supports `.zip`, `.war`, and directory scanning**
 
 ---
 
+## 🚀 Features
+
+- **Endpoint Discovery**: Finds REST endpoints across multiple frameworks
+- **Multi-Repository & Archive Support**: Scan folders, `.zip`, and `.war` files
+- **Complete URL Construction**: Combines context path, class-level, and method-level mappings
+- **Parameter Detection**: Detects path variables and request parameters
+- **Multiple Output Formats**: JSON, CSV, Markdown, Postman, and plain text reports
+- **Configuration Analysis**: Reads application properties and YAML files
+- **Detailed Reporting**: Controller class, method, file location, line number
+- **Encoding Resilient**: Safely reads files with multiple fallback encodings
+
+---
+
+## 📋 Requirements
+
+- Python 3.7+
+- No external Python dependencies
+
+---
+
+## 📁 Directory Structure
+
+```
+endpoint-crawler/
+├── endpoint_crawler.py        # Main script
+└── helpers/
+    ├── file_utils.py          # Safe file reading utilities
+    └── export_utils.py        # Output formatting utilities
+```
+
+---
+
+## 🔧 Usage
+
+### 🔹 Basic Usage
+
+```bash
+python endpoint_crawler.py /path/to/project
+```
+
+### 🔹 Scan Multiple Paths (folders, zips, wars)
+
+```bash
+python endpoint_crawler.py ./service1 ./legacy.zip ./api.war
+```
+
+### 🔹 Output Formats
+
+```bash
+# JSON output (default)
+python endpoint_crawler.py ./src -f json -o endpoints.json
+
+# CSV
+python endpoint_crawler.py ./src -f csv -o endpoints.csv
+
+# Markdown
+python endpoint_crawler.py ./src -f markdown -o report.md
+
+# Plain text
+python endpoint_crawler.py ./src -f text -o summary.txt
+
+# Postman collection
+python endpoint_crawler.py ./src -f postman -o postman_collection.json
+```
+
+### 🔹 Command-Line Options
+
+```bash
+Usage:
+  python endpoint_crawler.py [OPTIONS] PATHS...
+
+Arguments:
+  PATHS...                 One or more directories or archives (.zip/.war)
+
+Options:
+  -f, --format FORMAT      Output format: json, csv, markdown, postman, text
+  -o, --output PATH        Output file (default: print to stdout)
+  -h, --help               Show help message
+```
+
+---
+
+## 📊 Supported Annotations
+
+### Spring Boot
+- `@RequestMapping`
+- `@GetMapping`
+- `@PostMapping`
+- `@PutMapping`
+- `@DeleteMapping`
+- `@PatchMapping`
+- JAX-RS equivalents like `@Path`
+
+### Others
+- `@WebServlet` (Servlets)
+- Struts `action` XML path attributes
+- Express `app.get/post/put/...`
+- Angular `RouterModule.forRoot()` or route array definitions
+
+---
+
+## 📤 Sample Output (JSON)
+
+```json
+[
+  {
+    "method": "GET",
+    "full_path": "/api/v1/users",
+    "controller_class": "UserController",
+    "method_name": "getUsers",
+    "file_path": "/src/UserController.java",
+    "line_number": 42,
+    "parameters": []
+  }
+]
+```
+
+---
+
+## 📬 Postman Export
+
+Exports a v2.1 compatible Postman Collection:
+```bash
+python endpoint_crawler.py ./src -f postman -o endpoints.postman.json
+```
+
+You can then import this file into Postman and configure `{{baseUrl}}` as an environment variable.
+
+---
+
+## 🏗️ Project Use Cases
+
+- 📚 API Documentation
+- 🔒 Security Audits
+- ⚙️ CI/CD Integration
+- 🧪 Test Coverage Validation
+- 📦 Legacy Monolith Decomposition
+- 🔍 Endpoint Surface Analysis
+
+---
+
+## 📄 License
+
+MIT License. See `LICENSE` for details.
+
+---

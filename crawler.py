@@ -10,6 +10,7 @@ import tempfile
 from pathlib import Path
 from dataclasses import dataclass, field
 from typing import List, Dict
+from collections import defaultdict
 
 from helpers.file_utils import read_file_safely
 from helpers.export_utils import export_endpoints
@@ -40,13 +41,13 @@ STRUTS_XML_ACTION = re.compile(r'<action[^>]+(?:path|name)="([^"]+)"')
 STRUTS_ANNOTATION = re.compile(r'@Action\(([^)]*)\)')
 JAXRS_PATH = re.compile(r'@Path\("([^"]+)"\)')
 SERVLET_MAPPING = re.compile(r'@WebServlet\("([^"]+)"\)')
-JSP_HREF = re.compile(r'(?:href|action)=\"([^\"]+\\.jsp)\"')
-JSP_INCLUDE = re.compile(r'<jsp:include\\s+page=\"([^"]+)\"')
-FREEMARKER_URL = re.compile(r'(?:href|action)=\"([^\"]+\\.ftl)\"')
+JSP_HREF = re.compile(r'(?:href|action)="([^"]+\\.jsp)"')
+JSP_INCLUDE = re.compile(r'<jsp:include\\s+page="([^"]+)"')
+FREEMARKER_URL = re.compile(r'(?:href|action)="([^"]+\\.ftl)"')
 WEB_XML_MAPPING = re.compile(r'<url-pattern>([^<]+)</url-pattern>')
 
 # -----------------------------
-# Utility Functions
+# Utilities
 # -----------------------------
 def determine_severity(method: str, annotations: List[str]) -> str:
     method = method.upper()
@@ -74,17 +75,16 @@ def parse_mapping_args(arg_string: str) -> str:
     return arg_string
 
 # -----------------------------
-# Scanning Logic
+# Scanning
 # -----------------------------
 def extract_endpoints_from_file(filepath: str, content: str, constants: Dict[str, str]) -> List[Endpoint]:
     endpoints = []
     lines = content.splitlines()
     base_path = ""
     class_name = os.path.basename(filepath).replace(".java", "")
-    controller_found = any(SPRING_CONTROLLER.search(l) for l in lines)
 
     for i, line in enumerate(lines):
-        if not base_path and SPRING_CLASS_BASE.search(line):
+        if SPRING_CLASS_BASE.search(line):
             base_path = parse_mapping_args(SPRING_CLASS_BASE.search(line).group(1))
 
         for match in SPRING_METHOD_MAP.finditer(line):
@@ -94,7 +94,7 @@ def extract_endpoints_from_file(filepath: str, content: str, constants: Dict[str
             endpoints.append(Endpoint(
                 path=sub_path,
                 method=method_type,
-                controller_class=class_name if controller_found else "",
+                controller_class=class_name,
                 method_name="unknown",
                 file_path=filepath,
                 line_number=i + 1,
@@ -128,9 +128,6 @@ def extract_endpoints_from_file(filepath: str, content: str, constants: Dict[str
                 source_type=tag
             ))
 
-    if endpoints:
-        print(f"[DEBUG] Found {len(endpoints)} endpoints in {filepath}")
-
     return endpoints
 
 def scan_path(path: str) -> List[Endpoint]:
@@ -145,7 +142,6 @@ def scan_path(path: str) -> List[Endpoint]:
                         file_path = os.path.join(root, f)
                         content = read_file_safely(file_path)
                         if content and file_path.endswith((".java", ".xml", ".jsp", ".html", ".ftl")):
-                            print(f"[DEBUG] Scanning: {file_path}")
                             extracted.extend(extract_endpoints_from_file(file_path, content, constants))
     elif os.path.isdir(path):
         for root, _, files in os.walk(path):
@@ -153,14 +149,28 @@ def scan_path(path: str) -> List[Endpoint]:
                 file_path = os.path.join(root, f)
                 content = read_file_safely(file_path)
                 if content and file_path.endswith((".java", ".xml", ".jsp", ".html", ".ftl")):
-                    print(f"[DEBUG] Scanning: {file_path}")
                     extracted.extend(extract_endpoints_from_file(file_path, content, constants))
-    elif os.path.isfile(path):
-        content = read_file_safely(path)
-        if content and path.endswith((".java", ".xml", ".jsp", ".html", ".ftl")):
-            print(f"[DEBUG] Scanning: {path}")
-            extracted.extend(extract_endpoints_from_file(path, content, constants))
     return extracted
+
+# -----------------------------
+# Deduplication
+# -----------------------------
+def deduplicate_endpoints(endpoints: List[Endpoint]) -> List[Endpoint]:
+    grouped = defaultdict(list)
+    for ep in endpoints:
+        key = (ep.method, ep.full_path)
+        grouped[key].append(ep)
+
+    deduped = []
+    for (method, path), group in grouped.items():
+        primary = group[0]
+        primary.file_path = ", ".join(sorted(set(e.file_path for e in group)))
+        primary.line_number = min(e.line_number for e in group)
+        primary.source_type = ", ".join(sorted(set(e.source_type for e in group)))
+        primary.severity = max(group, key=lambda e: ["low", "medium", "high"].index(e.severity)).severity
+        deduped.append(primary)
+
+    return deduped
 
 # -----------------------------
 # CLI Entry
@@ -170,6 +180,7 @@ def main():
     parser.add_argument("paths", nargs="+", help="Files or folders to scan")
     parser.add_argument("-f", "--format", choices=["json", "csv", "markdown", "text", "postman"], default="json")
     parser.add_argument("-o", "--output", help="Output file")
+    parser.add_argument("--raw", action="store_true", help="Show raw (non-deduplicated) endpoint output")
     args = parser.parse_args()
 
     all_results: List[Endpoint] = []
@@ -180,8 +191,25 @@ def main():
         ep.module = infer_module_from_path(ep.file_path)
         ep.severity = determine_severity(ep.method, [ep.source_type])
 
+    if not args.raw:
+        all_results = deduplicate_endpoints(all_results)
+
     all_results.sort(key=lambda e: (e.module, e.controller_class, e.full_path))
+
+    if not args.output:
+        print("\n\033[1m[INFO] Detected Endpoints:\033[0m\n")
+        for ep in all_results:
+            color = {
+                "high": "\033[91m",     # red
+                "medium": "\033[93m",   # yellow
+                "low": "\033[92m",      # green
+            }.get(ep.severity.lower(), "\033[0m")
+            reset = "\033[0m"
+            print(f"- {ep.method:<6} {ep.full_path:<45}"
+                  f"\n  ↳ Controller: {ep.controller_class:<20} Line: {ep.line_number:<4} Source: {ep.source_type:<25} Severity: {color}{ep.severity.upper()}{reset}")
+
     export_endpoints(all_results, args.format, args.output)
 
 if __name__ == "__main__":
     main()
+

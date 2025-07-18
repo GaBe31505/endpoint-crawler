@@ -29,7 +29,6 @@ class Endpoint:
     severity: str = field(default="low")
     module: str = field(default="")
 
-
 # -----------------------------
 # Regexes
 # -----------------------------
@@ -41,11 +40,10 @@ STRUTS_XML_ACTION = re.compile(r'<action[^>]+(?:path|name)="([^"]+)"')
 STRUTS_ANNOTATION = re.compile(r'@Action\(([^)]*)\)')
 JAXRS_PATH = re.compile(r'@Path\("([^"]+)"\)')
 SERVLET_MAPPING = re.compile(r'@WebServlet\("([^"]+)"\)')
-JSP_HREF = re.compile(r'(?:href|action)=\"([^\"]+\.jsp)\"')
-JSP_INCLUDE = re.compile(r'<jsp:include\s+page=\"([^"]+)\"')
-FREEMARKER_URL = re.compile(r'(?:href|action)=\"([^\"]+\.ftl)\"')
+JSP_HREF = re.compile(r'(?:href|action)=\"([^\"]+\\.jsp)\"')
+JSP_INCLUDE = re.compile(r'<jsp:include\\s+page=\"([^"]+)\"')
+FREEMARKER_URL = re.compile(r'(?:href|action)=\"([^\"]+\\.ftl)\"')
 WEB_XML_MAPPING = re.compile(r'<url-pattern>([^<]+)</url-pattern>')
-
 
 # -----------------------------
 # Utility Functions
@@ -75,7 +73,6 @@ def parse_mapping_args(arg_string: str) -> str:
         return arg_string.strip().strip('"')
     return arg_string
 
-
 # -----------------------------
 # Scanning Logic
 # -----------------------------
@@ -84,9 +81,10 @@ def extract_endpoints_from_file(filepath: str, content: str, constants: Dict[str
     lines = content.splitlines()
     base_path = ""
     class_name = os.path.basename(filepath).replace(".java", "")
+    controller_found = any(SPRING_CONTROLLER.search(l) for l in lines)
 
     for i, line in enumerate(lines):
-        if SPRING_CLASS_BASE.search(line):
+        if not base_path and SPRING_CLASS_BASE.search(line):
             base_path = parse_mapping_args(SPRING_CLASS_BASE.search(line).group(1))
 
         for match in SPRING_METHOD_MAP.finditer(line):
@@ -96,7 +94,7 @@ def extract_endpoints_from_file(filepath: str, content: str, constants: Dict[str
             endpoints.append(Endpoint(
                 path=sub_path,
                 method=method_type,
-                controller_class=class_name,
+                controller_class=class_name if controller_found else "",
                 method_name="unknown",
                 file_path=filepath,
                 line_number=i + 1,
@@ -130,6 +128,9 @@ def extract_endpoints_from_file(filepath: str, content: str, constants: Dict[str
                 source_type=tag
             ))
 
+    if endpoints:
+        print(f"[DEBUG] Found {len(endpoints)} endpoints in {filepath}")
+
     return endpoints
 
 def scan_path(path: str) -> List[Endpoint]:
@@ -144,6 +145,7 @@ def scan_path(path: str) -> List[Endpoint]:
                         file_path = os.path.join(root, f)
                         content = read_file_safely(file_path)
                         if content and file_path.endswith((".java", ".xml", ".jsp", ".html", ".ftl")):
+                            print(f"[DEBUG] Scanning: {file_path}")
                             extracted.extend(extract_endpoints_from_file(file_path, content, constants))
     elif os.path.isdir(path):
         for root, _, files in os.walk(path):
@@ -151,9 +153,14 @@ def scan_path(path: str) -> List[Endpoint]:
                 file_path = os.path.join(root, f)
                 content = read_file_safely(file_path)
                 if content and file_path.endswith((".java", ".xml", ".jsp", ".html", ".ftl")):
+                    print(f"[DEBUG] Scanning: {file_path}")
                     extracted.extend(extract_endpoints_from_file(file_path, content, constants))
+    elif os.path.isfile(path):
+        content = read_file_safely(path)
+        if content and path.endswith((".java", ".xml", ".jsp", ".html", ".ftl")):
+            print(f"[DEBUG] Scanning: {path}")
+            extracted.extend(extract_endpoints_from_file(path, content, constants))
     return extracted
-
 
 # -----------------------------
 # CLI Entry
@@ -174,20 +181,7 @@ def main():
         ep.severity = determine_severity(ep.method, [ep.source_type])
 
     all_results.sort(key=lambda e: (e.module, e.controller_class, e.full_path))
-
-    if args.format in {"markdown", "csv"}:
-        # Group endpoints by module and sort within groups
-        from collections import defaultdict
-        grouped = defaultdict(list)
-        for ep in all_results:
-            grouped[ep.module].append(ep)
-        sorted_results = []
-        for module in sorted(grouped):
-            sorted_group = sorted(grouped[module], key=lambda e: (e.controller_class, e.full_path))
-            sorted_results.extend(sorted_group)
-        export_endpoints(sorted_results, args.format, args.output)
-    else:
-        export_endpoints(all_results, args.format, args.output)
+    export_endpoints(all_results, args.format, args.output)
 
 if __name__ == "__main__":
     main()

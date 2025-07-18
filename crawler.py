@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Enhanced Multi-Framework Endpoint Crawler with Base Path Merging and Constant Resolution
+Multi-Framework Endpoint Crawler with Base Path Merging and Constant Resolution
 """
 import os
 import re
@@ -30,25 +30,18 @@ class Endpoint:
     severity: str = field(default="low")
     module: str = field(default="")
 
-# -----------------------------
-# Regexes
-# -----------------------------
-JAVA_CONSTANT = re.compile(r'public\s+static\s+final\s+String\s+(\w+)\s*=\s*"([^"]+)"')
+# Regex patterns
 SPRING_CLASS_BASE = re.compile(r'@RequestMapping\(([^)]*)\)')
 SPRING_METHOD_MAP = re.compile(r'@(RequestMapping|GetMapping|PostMapping|PutMapping|DeleteMapping|PatchMapping)\(([^)]*)\)')
-SPRING_CONTROLLER = re.compile(r'@(RestController|Controller)')
 STRUTS_XML_ACTION = re.compile(r'<action[^>]+(?:path|name)="([^"]+)"')
 STRUTS_ANNOTATION = re.compile(r'@Action\(([^)]*)\)')
 JAXRS_PATH = re.compile(r'@Path\("([^"]+)"\)')
 SERVLET_MAPPING = re.compile(r'@WebServlet\("([^"]+)"\)')
-JSP_HREF = re.compile(r'(?:href|action)="([^"]+\\.jsp)"')
-JSP_INCLUDE = re.compile(r'<jsp:include\\s+page="([^"]+)"')
-FREEMARKER_URL = re.compile(r'(?:href|action)="([^"]+\\.ftl)"')
 WEB_XML_MAPPING = re.compile(r'<url-pattern>([^<]+)</url-pattern>')
+JSP_HREF = re.compile(r'(?:href|action)="([^"]+\.jsp)"')
+JSP_INCLUDE = re.compile(r'<jsp:include\s+page="([^"]+)"')
+FREEMARKER_URL = re.compile(r'(?:href|action)="([^"]+\.ftl)"')
 
-# -----------------------------
-# Utilities
-# -----------------------------
 def determine_severity(method: str, annotations: List[str]) -> str:
     method = method.upper()
     if method in {"DELETE", "PATCH"}:
@@ -74,9 +67,6 @@ def parse_mapping_args(arg_string: str) -> str:
         return arg_string.strip().strip('"')
     return arg_string
 
-# -----------------------------
-# Scanning
-# -----------------------------
 def extract_endpoints_from_file(filepath: str, content: str, constants: Dict[str, str]) -> List[Endpoint]:
     endpoints = []
     lines = content.splitlines()
@@ -104,15 +94,15 @@ def extract_endpoints_from_file(filepath: str, content: str, constants: Dict[str
                 source_type="SPRING_ANNOTATION"
             ))
 
-    for pattern, tag, regex in [
-        (STRUTS_XML_ACTION, "STRUTS_XML", STRUTS_XML_ACTION),
-        (STRUTS_ANNOTATION, "STRUTS_ANNOT", STRUTS_ANNOTATION),
-        (JAXRS_PATH, "JAXRS", JAXRS_PATH),
-        (SERVLET_MAPPING, "SERVLET", SERVLET_MAPPING),
-        (WEB_XML_MAPPING, "WEB_XML", WEB_XML_MAPPING),
-        (JSP_HREF, "JSP", JSP_HREF),
-        (JSP_INCLUDE, "JSP_INCLUDE", JSP_INCLUDE),
-        (FREEMARKER_URL, "FREEMARKER", FREEMARKER_URL),
+    for regex, tag in [
+        (STRUTS_XML_ACTION, "STRUTS_XML"),
+        (STRUTS_ANNOTATION, "STRUTS_ANNOT"),
+        (JAXRS_PATH, "JAXRS"),
+        (SERVLET_MAPPING, "SERVLET"),
+        (WEB_XML_MAPPING, "WEB_XML"),
+        (JSP_HREF, "JSP"),
+        (JSP_INCLUDE, "JSP_INCLUDE"),
+        (FREEMARKER_URL, "FREEMARKER"),
     ]:
         for m in regex.finditer(content):
             endpoints.append(Endpoint(
@@ -152,9 +142,6 @@ def scan_path(path: str) -> List[Endpoint]:
                     extracted.extend(extract_endpoints_from_file(file_path, content, constants))
     return extracted
 
-# -----------------------------
-# Deduplication
-# -----------------------------
 def deduplicate_endpoints(endpoints: List[Endpoint]) -> List[Endpoint]:
     grouped = defaultdict(list)
     for ep in endpoints:
@@ -169,14 +156,10 @@ def deduplicate_endpoints(endpoints: List[Endpoint]) -> List[Endpoint]:
         primary.source_type = ", ".join(sorted(set(e.source_type for e in group)))
         primary.severity = max(group, key=lambda e: ["low", "medium", "high"].index(e.severity)).severity
         deduped.append(primary)
-
     return deduped
 
-# -----------------------------
-# CLI Entry
-# -----------------------------
 def main():
-    parser = argparse.ArgumentParser(description="Enhanced endpoint crawler")
+    parser = argparse.ArgumentParser(description="Endpoint crawler")
     parser.add_argument("paths", nargs="+", help="Files or folders to scan")
     parser.add_argument("-f", "--format", choices=["json", "csv", "markdown", "text", "postman"], default="json")
     parser.add_argument("-o", "--output", help="Output file")
@@ -198,18 +181,28 @@ def main():
 
     if not args.output:
         print("\n\033[1m[INFO] Detected Endpoints:\033[0m\n")
+        grouped_by_module = defaultdict(list)
         for ep in all_results:
-            color = {
-                "high": "\033[91m",     # red
-                "medium": "\033[93m",   # yellow
-                "low": "\033[92m",      # green
-            }.get(ep.severity.lower(), "\033[0m")
-            reset = "\033[0m"
-            print(f"- {ep.method:<6} {ep.full_path:<45}"
-                  f"\n  ↳ Controller: {ep.controller_class:<20} Line: {ep.line_number:<4} Source: {ep.source_type:<25} Severity: {color}{ep.severity.upper()}{reset}")
+            grouped_by_module[ep.module].append(ep)
+
+        for module, endpoints in grouped_by_module.items():
+            print(f"\033[1m📦 Module: {module} ({len(endpoints)} endpoints)\033[0m")
+            print("─" * 40)
+            for ep in endpoints:
+                color = {
+                    "high": "\033[91m",
+                    "medium": "\033[93m",
+                    "low": "\033[92m",
+                }.get(ep.severity.lower(), "\033[0m")
+                reset = "\033[0m"
+                print(f"{color}● {ep.method:<6}{reset} {ep.full_path}")
+                print(f"    ├─ Controller: {ep.controller_class}")
+                print(f"    ├─ Line:       {ep.line_number}")
+                print(f"    ├─ Source:     {ep.source_type}")
+                print(f"    └─ Severity:   {color}{ep.severity.upper()}{reset}\n")
 
     export_endpoints(all_results, args.format, args.output)
 
 if __name__ == "__main__":
     main()
-
+    

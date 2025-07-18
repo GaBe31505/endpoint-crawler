@@ -1,161 +1,110 @@
-# 🕵️ Endpoint Crawler
+# 🕵️ Enhanced Endpoint Crawler
 
-A comprehensive Python-based tool to discover REST/API endpoints across multiple frameworks and packaging formats, including:
+A Python-based static analysis tool that uncovers REST and legacy web endpoints across Java, XML, JSP, and template-based applications. Ideal for decomposing monoliths, auditing APIs, and generating endpoint inventories.
 
-- ✅ **Spring Boot** (`@RequestMapping`, `@GetMapping`, etc.)
-- ✅ **Servlets** (`@WebServlet`)
-- ✅ **Struts 1.x / 2.x**
-- ✅ **JAX-RS**
-- ✅ **Express.js** (Node.js)
-- ✅ **Angular Router** (AngularJS & Angular 2+)
-- ✅ **YAML/Properties config** (for `server.servlet.context-path`)
-- ✅ **Supports `.zip`, `.war`, and directory scanning**
+---
+
+## ✅ Supported Technologies
+
+- **Spring Boot**: `@RequestMapping`, `@GetMapping`, etc.
+- **Servlets**: `@WebServlet`
+- **Struts 1.x / 2.x**: via `struts-config.xml` or annotations
+- **JAX-RS**: `@Path(...)` and HTTP method annotations
+- **web.xml**: `<url-pattern>...</url-pattern>`
+- **JSP**: `href`, `action`, and `<jsp:include>` patterns
+- **Freemarker Templates**: `.ftl` file routes and links
 
 ---
 
 ## 🚀 Features
 
-- **Endpoint Discovery**: Finds REST endpoints across multiple frameworks
-- **Multi-Repository & Archive Support**: Scan folders, `.zip`, and `.war` files
-- **Complete URL Construction**: Combines context path, class-level, and method-level mappings
-- **Parameter Detection**: Detects path variables and request parameters
-- **Multiple Output Formats**: JSON, CSV, Markdown, Postman, and plain text reports
-- **Configuration Analysis**: Reads application properties and YAML files
-- **Detailed Reporting**: Controller class, method, file location, line number
-- **Encoding Resilient**: Safely reads files with multiple fallback encodings
+- 🔍 **Comprehensive Endpoint Discovery** across Java, XML, and HTML template files  
+- 🧩 **Modern + Legacy Coverage**: Monoliths, microservices, and mixed-mode systems  
+- 📂 **Module-Based Grouping**: Results grouped by inferred module name  
+- ⚠️ **Severity Analysis**: Flags potentially sensitive endpoints like `DELETE`, `PATCH`, or unauthenticated routes  
+- 🧱 **Route Composition**: Combines class-level and method-level Spring mappings  
+- 📦 **Output Formats**: `json`, `csv`, `markdown`, `text`, `postman`  
+- 🛠 **Safe File Parsing**: UTF-8, ISO-8859-1, cp1252, and more  
 
 ---
 
 ## 📋 Requirements
 
 - Python 3.7+
-- No external Python dependencies
+- No external dependencies
 
 ---
 
-## 📁 Directory Structure
+## 📁 Project Structure
 
 ```
-endpoint-crawler/
-├── endpoint_crawler.py        # Main script
+enhanced_endpoint_crawler/
+├── crawler.py                 # Main scanner
 └── helpers/
-    ├── file_utils.py          # Safe file reading utilities
-    └── export_utils.py        # Output formatting utilities
+    ├── file_utils.py          # Encoding-resilient file reader
+    └── export_utils.py        # Output format generators
 ```
 
 ---
 
 ## 🔧 Usage
 
-### 🔹 Basic Usage
-
+### Scan a Directory or Archive
 ```bash
-python endpoint_crawler.py /path/to/project
+python crawler.py ./src
+python crawler.py ./project.zip
 ```
 
-### 🔹 Scan Multiple Paths (folders, zips, wars)
-
+### Output to CSV or Markdown
 ```bash
-python endpoint_crawler.py ./service1 ./legacy.zip ./api.war
+python crawler.py ./src -f csv -o endpoints.csv
+python crawler.py ./src -f markdown -o endpoints.md
 ```
 
-### 🔹 Output Formats
-
-```bash
-# JSON output (default)
-python endpoint_crawler.py ./src -f json -o endpoints.json
-
-# CSV
-python endpoint_crawler.py ./src -f csv -o endpoints.csv
-
-# Markdown
-python endpoint_crawler.py ./src -f markdown -o report.md
-
-# Plain text
-python endpoint_crawler.py ./src -f text -o summary.txt
-
-# Postman collection
-python endpoint_crawler.py ./src -f postman -o postman_collection.json
-```
-
-### 🔹 Command-Line Options
-
-```bash
-Usage:
-  python endpoint_crawler.py [OPTIONS] PATHS...
-
-Arguments:
-  PATHS...                 One or more directories or archives (.zip/.war)
-
-Options:
-  -f, --format FORMAT      Output format: json, csv, markdown, postman, text
-  -o, --output PATH        Output file (default: print to stdout)
-  -h, --help               Show help message
-```
+### Grouped Markdown Output
+Markdown is grouped by module and sorted by controller class.
 
 ---
 
-## 📊 Supported Annotations
+## 🧠 Output Fields
 
-### Spring Boot
-- `@RequestMapping`
-- `@GetMapping`
-- `@PostMapping`
-- `@PutMapping`
-- `@DeleteMapping`
-- `@PatchMapping`
-- JAX-RS equivalents like `@Path`
-
-### Others
-- `@WebServlet` (Servlets)
-- Struts `action` XML path attributes
-- Express `app.get/post/put/...`
-- Angular `RouterModule.forRoot()` or route array definitions
-
----
-
-## 📤 Sample Output (JSON)
-
-```json
-[
-  {
-    "method": "GET",
-    "full_path": "/api/v1/users",
-    "controller_class": "UserController",
-    "method_name": "getUsers",
-    "file_path": "/src/UserController.java",
-    "line_number": 42,
-    "parameters": []
-  }
-]
-```
+| Field            | Description                                           |
+|------------------|-------------------------------------------------------|
+| `method`         | HTTP method (`GET`, `POST`, etc.)                    |
+| `path`           | Endpoint path from method-level annotation           |
+| `base_path`      | Class-level base mapping (if any)                    |
+| `full_path`      | Combined `base_path + path`                          |
+| `controller_class` | Name of the controller or source file              |
+| `method_name`    | Method name if detected (`"unknown"` for now)        |
+| `file_path`      | Source file with relative or absolute path           |
+| `line_number`    | Approximate line where it was found                  |
+| `parameters`     | Placeholder (can be extended)                        |
+| `source_type`    | `SPRING_ANNOTATION`, `STRUTS_XML`, etc.              |
+| `severity`       | `low`, `medium`, or `high` based on risk             |
+| `module`         | Inferred from file structure (`apps/foo/`)           |
 
 ---
 
-## 📬 Postman Export
+## 🧪 Postman Collection Export
 
-Exports a v2.1 compatible Postman Collection:
 ```bash
-python endpoint_crawler.py ./src -f postman -o endpoints.postman.json
+python crawler.py ./src -f postman -o postman_collection.json
 ```
 
-You can then import this file into Postman and configure `{{baseUrl}}` as an environment variable.
+Use `{{baseUrl}}` in your environment for testing.
 
 ---
 
-## 🏗️ Project Use Cases
+## 🧠 Use Cases
 
-- 📚 API Documentation
-- 🔒 Security Audits
-- ⚙️ CI/CD Integration
-- 🧪 Test Coverage Validation
-- 📦 Legacy Monolith Decomposition
-- 🔍 Endpoint Surface Analysis
+- 📚 API Inventory & Documentation
+- 🔐 Security Surface Mapping
+- 🛠 Refactor Legacy Systems
+- 🧪 Test Coverage Analysis
+- 🧼 Dead Code & Orphaned Endpoint Detection
 
 ---
 
 ## 📄 License
 
 MIT License. See `LICENSE` for details.
-
----

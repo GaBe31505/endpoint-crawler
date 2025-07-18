@@ -1,39 +1,42 @@
 # 🕵️ Endpoint Crawler
 
-A comprehensive Python-based tool to discover REST/API endpoints across multiple frameworks and packaging formats, including:
+A comprehensive Python-based tool to discover REST/API endpoints across multiple frameworks and packaging formats.
 
-- ✅ **Spring Boot** (`@RequestMapping`, `@GetMapping`, etc.)
-- ✅ **Servlets** (`@WebServlet`)
-- ✅ **Struts 1.x / 2.x**
-- ✅ **JAX-RS / Jersey**
-- ✅ **Freemarker Templates (`.ftl`)**
-- ✅ **JSP Tags / Includes (`.jsp`, `.tld`)**
-- ✅ **Web XML / Legacy Config Files**
-- ✅ **Lightning Web Components (LWC)**
-- ✅ **YAML / Properties config** (`server.servlet.context-path`)
-- ✅ **Supports `.zip`, `.war`, and directory scanning**
+---
+
+## ✅ Supported Technologies
+
+- **Spring Boot** (`@RequestMapping`, `@GetMapping`, etc.)
+- **Servlets** (`@WebServlet`)
+- **Struts 1.x / 2.x**
+- **JAX-RS** (`@Path`)
+- **Freemarker Templates** (`*.ftl`)
+- **JSP Includes / Taglibs** (`.jsp`, `.tag`, `.tld`)
+- **web.xml / struts-config.xml** mappings
+- **Lightning Web Components (LWC)** / Salesforce Apex
+- **Java Constants** used in mapping
+- **Express.js** (Node.js)
+- **Angular (JS and TS)**
+- **YAML/Properties config** (`server.servlet.context-path`)
+- **Custom DispatcherServlet / HandlerMappings**
+- **SOA / EJB / Remote Interfaces**
+- Supports `.zip`, `.war`, and directory scanning
 
 ---
 
 ## 🚀 Features
 
-- **Multi-Framework Endpoint Discovery**
-- **Full Path Resolution**: Combines base path + method path
-- **Deduplicated Results by Default**
-- **Flag to Show Raw Entries** (`--raw`)
-- **Color-Coded Severity in CLI**
-- **Support for Archives**: `.zip` and `.war`
-- **Detailed Reporting**: Includes line number, file, controller class, method name, etc.
-- **Output Formats**: `json`, `csv`, `markdown`, `postman`, `text`
-- **Module Inference**: Auto-detects app/module from file paths
-- **Encoding-Resilient**: Fallback-safe file reading
-
----
-
-## 📋 Requirements
-
-- Python 3.7+
-- No external dependencies
+- ✅ Endpoint Discovery across legacy and modern Java apps
+- ✅ Multi-Repository & Archive Support: folders, `.zip`, and `.war`
+- ✅ Base Path + Method Path + Context Path merging
+- ✅ Java Constant Resolution
+- ✅ Color-coded CLI Output by Severity
+- ✅ CLI Output Grouped by Module (with section headers)
+- ✅ Deduplication of endpoints across files (default)
+- ✅ `--raw` flag to disable deduplication and view raw results
+- ✅ Output Formats: JSON, CSV, Markdown, Postman, Plain Text
+- ✅ Encodes line numbers, controller class, and source type
+- ✅ No external dependencies
 
 ---
 
@@ -41,98 +44,82 @@ A comprehensive Python-based tool to discover REST/API endpoints across multiple
 
 ```
 endpoint-crawler/
-├── crawler.py        # Main script
+├── endpoint_crawler.py        # Main CLI
 └── helpers/
-    ├── file_utils.py          # Safe file reading
-    └── export_utils.py        # Output formatting logic
+    ├── file_utils.py          # File reading with encoding fallback
+    └── export_utils.py        # Export handlers for all formats
 ```
 
 ---
 
 ## 🔧 Usage
 
-### 🔹 Scan Project Directory
+### 🔹 Basic Usage
 
 ```bash
-python crawler.py /path/to/project
+python endpoint_crawler.py /path/to/project
 ```
 
-### 🔹 Scan Multiple Inputs (folders or archives)
+### 🔹 Output to File
 
 ```bash
-python crawler.py ./service1 ./legacy.zip ./api.war
+python endpoint_crawler.py ./src -f json -o endpoints.json
 ```
 
-### 🔹 Output Formats
+### 🔹 Show Raw Output (disable deduplication)
 
 ```bash
-# JSON (default)
-python crawler.py ./src -f json -o endpoints.json
-
-# CSV
-python crawler.py ./src -f csv -o endpoints.csv
-
-# Markdown
-python crawler.py ./src -f markdown -o report.md
-
-# Plain text
-python crawler.py ./src -f text -o summary.txt
-
-# Postman Collection
-python crawler.py ./src -f postman -o endpoints.postman.json
+python endpoint_crawler.py ./src --raw
 ```
 
-### 🔹 CLI Output
+---
 
-If no `-o` file is specified, a color-coded CLI summary will be printed:
+## 🖥️ Pretty CLI Output
 
-```bash
+When `-o` is not used, output is shown in the terminal:
+
+```
 [INFO] Detected Endpoints:
 
-- GET    /api/users                          
-  ↳ Controller: UserController       Line: 42   Source: SPRING_ANNOTATION       Severity: HIGH
-```
+📦 Module: user-service (3 endpoints)
+─────────────────────────────────────
+🟥 DELETE /api/v1/users/{id}
+    ├─ Controller: UserController
+    ├─ Line:       88
+    ├─ Source:     SPRING_ANNOTATION
+    └─ Severity:   HIGH
 
-Color key:
-- 🟥 High (`DELETE`, `PATCH`, unauthenticated)
-- 🟨 Medium (`POST`)
-- 🟩 Low (`GET`, etc.)
+🟨 POST   /api/v1/users
+    ├─ Controller: UserController
+    ├─ Line:       42
+    ├─ Source:     SPRING_ANNOTATION
+    └─ Severity:   MEDIUM
+```
 
 ---
 
-## ⚙️ Optional Flags
+## 📤 Export Formats
 
 ```bash
---raw             Show all raw endpoint entries without deduplication
--f, --format      Output format: json, csv, markdown, text, postman
--o, --output      Write to output file instead of stdout
+# JSON
+python endpoint_crawler.py ./src -f json -o endpoints.json
+
+# CSV
+python endpoint_crawler.py ./src -f csv -o endpoints.csv
+
+# Markdown
+python endpoint_crawler.py ./src -f markdown -o endpoints.md
+
+# Plain text
+python endpoint_crawler.py ./src -f text -o summary.txt
+
+# Postman Collection
+python endpoint_crawler.py ./src -f postman -o endpoints.postman.json
 ```
 
-By default, deduplication merges endpoints with the same path + method and aggregates sources.
-
 ---
 
-## 📊 Supported Annotations
-
-### Spring Boot
-- `@RequestMapping`
-- `@GetMapping`, `@PostMapping`, etc.
-- Class-level and method-level combinations
-- Constants inside annotations (if resolvable)
-
-### Legacy & Other
-- `@WebServlet`
-- Struts 1.x `<action path="...">` in XML
-- Struts 2 `@Action`, `@Namespace`, `@Result`
-- JAX-RS `@Path`, `@GET`, `@POST`
-- `web.xml` `<url-pattern>`
-- JSP `<jsp:include>`, `action="/some.jsp"`
-- Freemarker `href="/some.ftl"` or `action=...`
-- Salesforce LWC decorators (experimental)
-
----
-
-## 📤 Sample Output (JSON)
+## 📊 Sample Output (JSON)
 
 ```json
 [
@@ -143,22 +130,23 @@ By default, deduplication merges endpoints with the same path + method and aggre
     "method_name": "getUsers",
     "file_path": "/src/UserController.java",
     "line_number": 42,
-    "parameters": "",
-    "source_type": "SPRING_ANNOTATION",
-    "severity": "high"
+    "parameters": [],
+    "severity": "low",
+    "source_type": "SPRING_ANNOTATION"
   }
 ]
 ```
 
 ---
 
-## 🧠 Use Cases
+## 🏗️ Project Use Cases
 
-- 🔒 Security Testing & Attack Surface Analysis
-- 🧪 API Test Coverage Validation
-- 📚 Documentation Generation
+- 📚 API Documentation
+- 🔒 Security Audits
+- ⚙️ CI/CD Integration
+- 🧪 Test Coverage Validation
 - 📦 Legacy Monolith Decomposition
-- ⚙️ CI/CD Integration & Change Auditing
+- 🔍 Endpoint Surface Analysis
 
 ---
 

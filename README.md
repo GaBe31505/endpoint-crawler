@@ -44,7 +44,7 @@ A comprehensive Python-based tool to discover REST/API endpoints across multiple
 
 ```
 endpoint-crawler/
-├── endpoint_crawler.py        # Main CLI
+├── crawler.py        # Main CLI
 └── helpers/
     ├── file_utils.py          # File reading with encoding fallback
     └── export_utils.py        # Export handlers for all formats
@@ -57,19 +57,19 @@ endpoint-crawler/
 ### 🔹 Basic Usage
 
 ```bash
-python endpoint_crawler.py /path/to/project
+python crawler.py /path/to/project
 ```
 
 ### 🔹 Output to File
 
 ```bash
-python endpoint_crawler.py ./src -f json -o endpoints.json
+python crawler.py ./src -f json -o endpoints.json
 ```
 
 ### 🔹 Show Raw Output (disable deduplication)
 
 ```bash
-python endpoint_crawler.py ./src --raw
+python crawler.py ./src --raw
 ```
 
 ---
@@ -102,19 +102,19 @@ When `-o` is not used, output is shown in the terminal:
 
 ```bash
 # JSON
-python endpoint_crawler.py ./src -f json -o endpoints.json
+python crawler.py ./src -f json -o endpoints.json
 
 # CSV
-python endpoint_crawler.py ./src -f csv -o endpoints.csv
+python crawler.py ./src -f csv -o endpoints.csv
 
 # Markdown
-python endpoint_crawler.py ./src -f markdown -o endpoints.md
+python crawler.py ./src -f markdown -o endpoints.md
 
 # Plain text
-python endpoint_crawler.py ./src -f text -o summary.txt
+python crawler.py ./src -f text -o summary.txt
 
 # Postman Collection
-python endpoint_crawler.py ./src -f postman -o endpoints.postman.json
+python crawler.py ./src -f postman -o endpoints.postman.json
 ```
 
 ---

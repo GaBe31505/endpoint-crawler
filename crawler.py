@@ -1,14 +1,18 @@
 #!/usr/bin/env python3
 """
-Modular endpoint crawler supporting multiple inputs (dirs, files, ZIPs/WARs), batched I/O,
-pathlib usage, dynamic detector registration, and helper utilities.
+Modular endpoint crawler supporting multiple inputs (dirs, files, ZIPs/WARs),
+batched I/O, pathlib usage, dynamic detector registration, and helper utilities.
 Supports output formats: csv, json, markdown, postman
+
+This version combines AST parsing with comprehensive regex detectors for
+maximum coverage, including legacy Struts/XML and hard-coded redirects.
+If `-o/--output` is omitted, only CLI output is shown.
 
 Usage:
   python crawler.py \
-    --inputs /path/to/dir file.java archive.zip myapp.war \
-    --output endpoints.csv \
-    --format csv
+    -i /path/to/dir file.java archive.zip myapp.war \
+    [-o endpoints.csv] \
+    [-f csv]
 
 Dependencies:
   pip install javalang rich
@@ -34,6 +38,7 @@ from detectors.security_detector import security_detector
 from detectors.error_detector import error_detector
 from detectors.xml_detector import xml_detector
 from detectors.jsp_detector import jsp_detector
+from detectors.legacy_regex_detector import legacy_regex_detector
 
 # Register detectors dynamically with tags
 DETECTORS = [
@@ -45,15 +50,19 @@ DETECTORS = [
     ('SECURITY',     security_detector),
     ('ERROR',        error_detector),
     ('XML',          xml_detector),
+    ('JSP',          jsp_detector),
+    ('REGEX_LEGACY', legacy_regex_detector),
 ]
 
 
 def parse_args():
     p = argparse.ArgumentParser('Modular Endpoint Crawler')
-    p.add_argument('-i','--inputs', nargs='+', required=True,
+    p.add_argument('-i', '--inputs', nargs='+', required=True,
                    help='Dirs, files, ZIP/WAR archives')
-    p.add_argument('-o','--output', required=True, help='Output path')
-    p.add_argument('-f','--format', choices=['csv','json','markdown','postman'], default='csv')
+    p.add_argument('-o', '--output', required=False,
+                   help='Output path (omit for CLI-only)')
+    p.add_argument('-f', '--format', choices=['csv','json','markdown','postman'], default='csv',
+                   help='Output format (only used if --output is provided)')
     return p.parse_args()
 
 
@@ -81,7 +90,6 @@ def run_detectors(origin, text):
     records = []
     for tag, func in DETECTORS:
         try:
-            # detectors now accept both origin and text
             recs = func(origin, text) if func.__code__.co_argcount == 2 else func(origin)
         except Exception:
             recs = []
@@ -105,17 +113,17 @@ def aggregate(records):
         reason = "; ".join(sorted(sources))
         params = ",".join(re.findall(r"\{([^}]+)\}", ep))
         first = recs[0]
-        module = first['file'].split(':')[0]
+        module = Path(first['file'].split(':')[0]).name
         locations = "; ".join(f"{r['file']}:{r['line']}" for r in recs)
         results.append({
-            'module': module,
-            'method': first['method'],
-            'endpoint': ep,
-            'controller': first['controller'],
-            'line': first['line'],
-            'confidence': confidence,
-            'reason': reason,
-            'params': params,
+            'module':    module,
+            'method':    first['method'],
+            'endpoint':  ep,
+            'controller':first['controller'],
+            'line':      first['line'],
+            'confidence':confidence,
+            'reason':    reason,
+            'params':    params,
             'locations': locations
         })
     return results
@@ -123,14 +131,18 @@ def aggregate(records):
 
 def render_cli(results):
     console = Console(theme=Theme({
-        'high':'bold green','medium':'bold yellow','low':'bold red','header':'bold cyan'
+        'high': 'bold green', 'medium': 'bold yellow', 'low': 'bold red', 'header': 'bold cyan'
     }))
     table = Table(title='Detected Endpoints', box=box.ROUNDED, header_style='header')
-    for col, style in [('Module','cyan'),('Method','magenta'),('Endpoint','white'),
-                       ('Confidence',None),('Sources','white'),('Controller','green'),('Line',None)]:
+    # truncate long module names
+    table.add_column('Module', style='cyan', overflow='fold', max_width=20)
+    for col, style in [
+        ('Method','magenta'),('Endpoint','white'),('Confidence',None),
+        ('Sources','white'),('Controller','green'),('Line',None)
+    ]:
         table.add_column(col, style=style, justify='right' if col in ('Confidence','Line') else None)
     for r in results:
-        lvl = 'high' if r['confidence']==100 else 'medium' if r['confidence']>=50 else 'low'
+        lvl = 'high' if r['confidence'] == 100 else 'medium' if r['confidence'] >= 50 else 'low'
         table.add_row(
             r['module'], r['method'], r['endpoint'],
             f"[{lvl}]{r['confidence']}%[/{lvl}]", r['reason'],
@@ -140,17 +152,23 @@ def render_cli(results):
 
 
 def render_file(results, path, fmt):
+    if not path:
+        return
     if fmt == 'csv':
         import csv
-        with open(path,'w',newline='',encoding='utf-8') as f:
-            writer = csv.DictWriter(f, fieldnames=['endpoint','confidence','reason','params','locations'])
+        with open(path, 'w', newline='', encoding='utf-8') as f:
+            fieldnames = [
+                'module','method','endpoint','controller','line',
+                'confidence','reason','params','locations'
+            ]
+            writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction='ignore')
             writer.writeheader()
             writer.writerows(results)
     elif fmt == 'json':
-        with open(path,'w',encoding='utf-8') as f:
+        with open(path, 'w', encoding='utf-8') as f:
             json.dump(results, f, indent=2)
     elif fmt == 'markdown':
-        with open(path,'w',encoding='utf-8') as f:
+        with open(path, 'w', encoding='utf-8') as f:
             f.write('| endpoint | confidence | reason | params | locations |')
             f.write('|---|---|---|---|---|')
             for r in results:
@@ -165,12 +183,12 @@ def render_file(results, path, fmt):
                 'name': r['endpoint'],
                 'request': {
                     'method': r['method'], 'header': [],
-                    'url': {'raw':'{{baseUrl}}'+r['endpoint'],'host':['{{baseUrl}}'],'path':r['endpoint'].lstrip('/').split('/')}
+                    'url': {'raw': '{{baseUrl}}'+r['endpoint'],'host':['{{baseUrl}}'],'path':r['endpoint'].lstrip('/').split('/')}
                 },
                 'response': [],
                 'description': r['locations']
             })
-        with open(path,'w',encoding='utf-8') as f:
+        with open(path, 'w', encoding='utf-8') as f:
             json.dump(collection, f, indent=2)
 
 
@@ -192,7 +210,8 @@ def main():
 
     results = aggregate(all_records)
     render_cli(results)
-    render_file(results, args.output, args.format)
+    if args.output:
+        render_file(results, args.output, args.format)
 
 if __name__ == '__main__':
     main()

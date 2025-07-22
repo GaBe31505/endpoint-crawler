@@ -50,7 +50,8 @@ endpoint_crawler_modular/
     ├── security_detector.py
     ├── error_detector.py
     ├── xml_detector.py
-    └── jsp_detector.py
+    ├── jsp_detector.py
+    └── legacy_regex_detector.py
 ```
 
 ## Usage
@@ -58,21 +59,29 @@ endpoint_crawler_modular/
 ```bash
 python crawler.py \
   -i /path/to/dir file.java archive.zip myapp.war \
-  -o endpoints.csv \
-  -f csv
+  [-o endpoints.csv] \
+  [-f csv]
 ```
 
-| Option        | Description                                                     | Default |
-|---------------|-----------------------------------------------------------------|---------|
-| `-i, --inputs`| One or more directories, individual files, or ZIP/WAR archives   | (none)  |
-| `-o, --output`| Path where results will be written (CSV, JSON, Markdown, Postman)| (none)  |
-| `-f, --format`| Output format (`csv`, `json`, `markdown`, `postman`)            | `csv`   |
+| Option        | Description                                                           | Default |
+|---------------|-----------------------------------------------------------------------|---------|
+| `-i, --inputs`| One or more directories, individual files, or ZIP/WAR archives         | (none)  |
+| `-o, --output`| **Optional**: Path where results will be written (omit to skip file)  | (none)  |
+| `-f, --format`| Output format (`csv`, `json`, `markdown`, `postman`); only used if `--output` is set | `csv`   |
+
+### CLI Output
+
+Regardless of `--output`, the crawler always prints a color‑coded table of detected endpoints to the console via Rich.
 
 ## Output
 
 - **CSV/JSON/Markdown**: columns/fields:
+  - `module` — the top‑level folder or archive basename
+  - `method` — HTTP method
   - `endpoint` — the URL path
-  - `confidence` — % score (100 = at least two independent detections)
+  - `controller` — the originating component or detector
+  - `line` — line number where the endpoint was found
+  - `confidence` — % score (100 = multi‑detector agreement)
   - `reason` — which detectors (tags) agreed
   - `params` — comma‑separated `{…}` variables
   - `locations` — `file:line` entries of each detection
@@ -88,7 +97,7 @@ python crawler.py \
    ```python
    def my_detector(origin, text):
        # analyze the provided `text`, return list of dicts
-       # each dict must have keys: endpoint, line, method, controller, source, file
+       # each dict must have keys: endpoint, line, method, controller, file
    ```
 3. In `crawler.py`, add an entry to the `DETECTORS` list:
    ```python
@@ -98,11 +107,12 @@ python crawler.py \
 
 ## Notes
 
+- **Output optional**: omit `-o/--output` to skip file export and only see CLI results.
 - **Multi‑Input Support**: scan multiple directories, files, and archives in one pass.
 - **In‑Memory Scanning**: detectors operate on provided text for both disk files and archive entries.
 - **Dynamic Registration**: detectors are tagged for provenance; drop new modules into `detectors/` and register them.
 - **Encoding Robustness**: files are decoded with a fallback chain (UTF‑8 → UTF‑16 → Latin‑1 → CP1252 → ignore errors).
-- **Performance**: removing predicate lambdas means all detectors run on all inputs—tune as needed for large codebases.
+- **Performance**: all detectors run on all inputs by default—re-introduce predicates if you need to filter specific files.
 - Results are grouped by endpoint, deduplicated, and scored by multi‑source provenance.
 
 ---

@@ -42,15 +42,14 @@ def format_location_multiline(loc):
 def render_cli(records):
     """
     Render a modern, readable CLI table of endpoints using Rich.
-    - Minimal actionable columns only.
-    - Color-coding, no banding, NO truncation or ellipsis.
-    - Location: every file or file:line on its own line, only filename shown.
+    - One row per endpoint+location pair, even if the endpoint repeats.
+    - Colorful, no banding, all fields shown, NO truncation.
+    - Location column is always a single filename:line per row.
     """
     if not records:
         print("No endpoints found.")
         return
 
-    # Setup Rich table with colors and minimal styling
     table = Table(
         show_header=True,
         header_style="bold magenta",
@@ -59,7 +58,6 @@ def render_cli(records):
         pad_edge=False
     )
 
-    # Column color styles
     col_styles = {
         "endpoint": "bold blue",
         "method": "green",
@@ -72,22 +70,30 @@ def render_cli(records):
         table.add_column(
             col.title(),
             style=col_styles.get(col, ""),
-            no_wrap=False  # No truncation; let Rich wrap as needed
+            no_wrap=False
         )
 
+    # EXPAND: one row per location (classic behavior)
+    expanded_records = []
     for rec in records:
-        # Format location for CLI: filenames only, multi-line
-        location_val = rec.get("location", f"{rec.get('file','')}:{rec.get('line','')}")
-        location = format_location_multiline(location_val)
+        loc = rec.get("location", f"{rec.get('file','')}:{rec.get('line','')}")
+        # If the location is a list, create a row for each item
+        if isinstance(loc, list):
+            for single_loc in loc:
+                new_rec = rec.copy()
+                new_rec["location"] = single_loc
+                expanded_records.append(new_rec)
+        else:
+            rec["location"] = loc
+            expanded_records.append(rec)
 
-        # Method: join lists/tuples, always string
+    for rec in expanded_records:
+        location = format_location_multiline(rec["location"])
         method = rec.get("method", "")
         if isinstance(method, (list, tuple)):
             method = ",".join(str(m) for m in method)
         elif method is None:
             method = ""
-
-        # Confidence: try to format as float
         confidence = rec.get("confidence", "")
         if confidence != "":
             try:
@@ -99,7 +105,6 @@ def render_cli(records):
         else:
             conf_val = None
             confidence_fmt = ""
-
         endpoint = str(rec.get("endpoint", ""))
         source = str(rec.get("source", ""))
 
@@ -108,7 +113,6 @@ def render_cli(records):
         if conf_val is not None and conf_val >= 0.90:
             endpoint_style += " bold underline"
 
-        # Assembled row, using rich markup for color
         row = [
             f"[{endpoint_style}]{endpoint}[/]" if endpoint else "",
             f"[{col_styles['method']}]{method}[/]" if method else "",

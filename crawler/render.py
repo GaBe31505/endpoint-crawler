@@ -2,10 +2,11 @@
 Rendering logic for endpoint discovery.
 
 - CLI: minimal, modern, colorized table for human scanning (Rich).
-  Location column: every entry (file or file:line) on its own line.
-- CSV/Markdown/JSON/Postman: all columns, flattened extras.
+  Location column: filename (not full path) + line, one per line, for readability.
+- CSV/Markdown/JSON/Postman: all columns, flattened extras, full paths preserved.
 """
 
+import os
 from rich.table import Table
 from rich.console import Console
 from rich import box
@@ -13,54 +14,52 @@ import json
 import csv
 import sys
 
-# Minimal columns for CLI output
+# Columns to display in the CLI table
 PREFERRED_CLI = [
     "endpoint", "method", "confidence", "source", "location"
 ]
 
 def format_location_multiline(loc):
     """
-    Format the location field for Rich CLI output.
-    - If list, show each entry (file or file:line) on its own line.
-    - If tuple, format as file:line.
-    - Else, return as string.
+    For CLI, show only the filename (not full path) for readability.
+    - If list, each entry (file or file:line) is on its own line, showing only filename.
+    - If tuple, show filename:line.
+    - If single path, show only the basename.
+    - All original data is retained for file outputs.
     """
+    def short(x):
+        # For (file, line) tuples/lists
+        if isinstance(x, (tuple, list)) and len(x) == 2:
+            return f"{os.path.basename(x[0])}:{x[1]}"
+        # For just a file (path)
+        return os.path.basename(str(x))
     if isinstance(loc, list):
-        formatted = []
-        for x in loc:
-            if isinstance(x, (tuple, list)) and len(x) == 2:
-                f, l = x
-                formatted.append(f"{f}:{l}")
-            else:
-                formatted.append(str(x))
-        return "\n".join(formatted)
+        return "\n".join(short(x) for x in loc)
     elif isinstance(loc, (tuple, list)) and len(loc) == 2:
-        return f"{loc[0]}:{loc[1]}"
-    return str(loc)
+        return short(loc)
+    return os.path.basename(str(loc))
 
 def render_cli(records):
     """
-    Render a visually-modern and readable CLI table using the Rich library.
+    Render a modern, readable CLI table of endpoints using Rich.
     - Minimal actionable columns only.
-    - Color-coding, zebra striping, and ellipsis for long fields.
-    - High-confidence endpoints bolded and underlined.
-    - Location: every file or file:line on its own line.
+    - Color-coding, no banding, NO truncation or ellipsis.
+    - Location: every file or file:line on its own line, only filename shown.
     """
     if not records:
         print("No endpoints found.")
         return
 
-    # Set up a modern, minimal table with colors and striping
+    # Setup Rich table with colors and minimal styling
     table = Table(
         show_header=True,
         header_style="bold magenta",
         box=box.SIMPLE_HEAD,
-        row_styles=["none", "dim"],  # Alternating backgrounds
         show_lines=False,
         pad_edge=False
     )
 
-    # Per-column color and width settings
+    # Column color styles
     col_styles = {
         "endpoint": "bold blue",
         "method": "green",
@@ -68,37 +67,27 @@ def render_cli(records):
         "source": "cyan",
         "location": "dim"
     }
-    max_col_widths = {
-        "endpoint": 40,
-        "location": 32,
-        "method": 10,
-        "source": 16
-    }
 
-    # Add columns with modern styling
     for col in PREFERRED_CLI:
         table.add_column(
             col.title(),
             style=col_styles.get(col, ""),
-            overflow="ellipsis",
-            max_width=max_col_widths.get(col, 24),
-            no_wrap=False
+            no_wrap=False  # No truncation; let Rich wrap as needed
         )
 
     for rec in records:
-        # --- Prepare each column for display ---
-        # Compose location column with all entries on new lines
+        # Format location for CLI: filenames only, multi-line
         location_val = rec.get("location", f"{rec.get('file','')}:{rec.get('line','')}")
         location = format_location_multiline(location_val)
 
-        # Method as string (join lists/tuples)
+        # Method: join lists/tuples, always string
         method = rec.get("method", "")
         if isinstance(method, (list, tuple)):
             method = ",".join(str(m) for m in method)
         elif method is None:
             method = ""
 
-        # Confidence as float with two decimals if possible
+        # Confidence: try to format as float
         confidence = rec.get("confidence", "")
         if confidence != "":
             try:
@@ -114,12 +103,12 @@ def render_cli(records):
         endpoint = str(rec.get("endpoint", ""))
         source = str(rec.get("source", ""))
 
-        # Highlight high-confidence endpoints
+        # Highlight endpoints with high confidence
         endpoint_style = col_styles["endpoint"]
         if conf_val is not None and conf_val >= 0.90:
             endpoint_style += " bold underline"
 
-        # Use rich markup for colored output
+        # Assembled row, using rich markup for color
         row = [
             f"[{endpoint_style}]{endpoint}[/]" if endpoint else "",
             f"[{col_styles['method']}]{method}[/]" if method else "",
@@ -130,7 +119,7 @@ def render_cli(records):
         table.add_row(*row)
     Console().print(table)
 
-# --- Helpers for CSV/Markdown/JSON/Postman ---
+# --- Helpers for file outputs ---
 
 def get_columns(records, preferred=None):
     """
@@ -179,7 +168,7 @@ def render_json(records, output=None):
 def render_csv(records, output=None):
     """
     Render records as CSV with consistent columns.
-    All fields (including extras) are present.
+    All fields (including extras) are present, full paths/lines are preserved.
     """
     if not records:
         print("No endpoints found.")
@@ -203,7 +192,7 @@ def render_csv(records, output=None):
 def render_markdown(records, output=None):
     """
     Render records as a GitHub-flavored markdown table.
-    All fields (including extras) are present.
+    All fields (including extras) are present, full paths/lines are preserved.
     """
     if not records:
         print("No endpoints found.")

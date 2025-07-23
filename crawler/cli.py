@@ -4,7 +4,7 @@ import argparse
 from .io import walk_inputs
 from .detect import run_detectors
 from .aggregate import aggregate, filter_and_sort, merge_overlaps
-from .render import render_cli, render_file
+from .render import render_cli, render_json, render_csv, render_markdown, render_postman
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -27,9 +27,15 @@ def parse_args():
                         default='ALL', help='Filter by HTTP method')
     return parser.parse_args()
 
+RENDERERS = {
+    "json": render_json,
+    "csv": render_csv,
+    "markdown": render_markdown,
+    "postman": render_postman
+}
+
 def main():
     args = parse_args()
-    # default to JSON if output has no extension
     if args.output:
         root, ext = os.path.splitext(args.output)
         if not ext:
@@ -43,7 +49,8 @@ def main():
     final = merge_overlaps(filtered)
 
     if args.output:
-        render_file(final, args.output, args.format)
+        render_fn = RENDERERS.get(args.format, render_json)
+        render_fn(final, args.output)
     else:
         render_cli(final)
 

@@ -2,8 +2,8 @@
 Rendering logic for endpoint discovery.
 
 - CLI: minimal, modern, colorized table for human scanning (Rich).
+  Location column: every entry (file or file:line) on its own line.
 - CSV/Markdown/JSON/Postman: all columns, flattened extras.
-- All functions are defensive, maintainable, and well-commented.
 """
 
 from rich.table import Table
@@ -13,17 +13,38 @@ import json
 import csv
 import sys
 
-# --- Minimal columns for CLI output ---
+# Minimal columns for CLI output
 PREFERRED_CLI = [
     "endpoint", "method", "confidence", "source", "location"
 ]
 
+def format_location_multiline(loc):
+    """
+    Format the location field for Rich CLI output.
+    - If list, show each entry (file or file:line) on its own line.
+    - If tuple, format as file:line.
+    - Else, return as string.
+    """
+    if isinstance(loc, list):
+        formatted = []
+        for x in loc:
+            if isinstance(x, (tuple, list)) and len(x) == 2:
+                f, l = x
+                formatted.append(f"{f}:{l}")
+            else:
+                formatted.append(str(x))
+        return "\n".join(formatted)
+    elif isinstance(loc, (tuple, list)) and len(loc) == 2:
+        return f"{loc[0]}:{loc[1]}"
+    return str(loc)
+
 def render_cli(records):
     """
-    Render a visually-modern and readable CLI table of endpoints using the Rich library.
+    Render a visually-modern and readable CLI table using the Rich library.
     - Minimal actionable columns only.
     - Color-coding, zebra striping, and ellipsis for long fields.
     - High-confidence endpoints bolded and underlined.
+    - Location: every file or file:line on its own line.
     """
     if not records:
         print("No endpoints found.")
@@ -64,21 +85,20 @@ def render_cli(records):
             no_wrap=False
         )
 
-    # Prepare and add each row
     for rec in records:
-        # Compose 'location' as file:line
-        file = rec.get("file", "")
-        line = rec.get("line", "")
-        location = f"{file}:{line}" if file or line else ""
+        # --- Prepare each column for display ---
+        # Compose location column with all entries on new lines
+        location_val = rec.get("location", f"{rec.get('file','')}:{rec.get('line','')}")
+        location = format_location_multiline(location_val)
 
-        # Ensure method is a string
+        # Method as string (join lists/tuples)
         method = rec.get("method", "")
         if isinstance(method, (list, tuple)):
             method = ",".join(str(m) for m in method)
         elif method is None:
             method = ""
 
-        # Format confidence as float if possible
+        # Confidence as float with two decimals if possible
         confidence = rec.get("confidence", "")
         if confidence != "":
             try:

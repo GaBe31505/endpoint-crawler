@@ -5,7 +5,7 @@ Rendering logic for endpoint discovery.
   - One row per endpoint-location pair.
   - Location: filename (not full path) + line, for readability.
 - CSV/Markdown: one row per endpoint-location pair, full paths/lines preserved.
-- JSON/Postman: all columns, locations as lists (aggregated).
+- JSON/Postman: locations as lists (aggregated).
 """
 
 import os

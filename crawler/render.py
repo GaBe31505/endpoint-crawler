@@ -1,80 +1,138 @@
 """
 Rendering logic for endpoint discovery.
-- CLI: minimal columns (endpoint, method, confidence, source, location)
-- CSV/Markdown/JSON/Postman: all fields (flattened extras)
+
+- CLI: minimal, modern, colorized table for human scanning (Rich).
+- CSV/Markdown/JSON/Postman: all columns, flattened extras.
+- All functions are defensive, maintainable, and well-commented.
 """
 
 from rich.table import Table
 from rich.console import Console
+from rich import box
 import json
 import csv
 import sys
 
-# Preferred CLI columns (minimal)
+# --- Minimal columns for CLI output ---
 PREFERRED_CLI = [
     "endpoint", "method", "confidence", "source", "location"
 ]
 
 def render_cli(records):
     """
-    Render a visually-rich CLI table using Rich with only minimal columns.
-    Location = file:line.
+    Render a visually-modern and readable CLI table of endpoints using the Rich library.
+    - Minimal actionable columns only.
+    - Color-coding, zebra striping, and ellipsis for long fields.
+    - High-confidence endpoints bolded and underlined.
     """
     if not records:
         print("No endpoints found.")
         return
 
-    table = Table(show_header=True, header_style="bold magenta")
-    for col in PREFERRED_CLI:
-        col_title = col.title()
-        table.add_column(col_title, overflow="fold", no_wrap=False)
+    # Set up a modern, minimal table with colors and striping
+    table = Table(
+        show_header=True,
+        header_style="bold magenta",
+        box=box.SIMPLE_HEAD,
+        row_styles=["none", "dim"],  # Alternating backgrounds
+        show_lines=False,
+        pad_edge=False
+    )
 
+    # Per-column color and width settings
+    col_styles = {
+        "endpoint": "bold blue",
+        "method": "green",
+        "confidence": "yellow",
+        "source": "cyan",
+        "location": "dim"
+    }
+    max_col_widths = {
+        "endpoint": 40,
+        "location": 32,
+        "method": 10,
+        "source": 16
+    }
+
+    # Add columns with modern styling
+    for col in PREFERRED_CLI:
+        table.add_column(
+            col.title(),
+            style=col_styles.get(col, ""),
+            overflow="ellipsis",
+            max_width=max_col_widths.get(col, 24),
+            no_wrap=False
+        )
+
+    # Prepare and add each row
     for rec in records:
-        # Compose location column
+        # Compose 'location' as file:line
         file = rec.get("file", "")
         line = rec.get("line", "")
         location = f"{file}:{line}" if file or line else ""
 
-        # Compose method (safe for list/tuple)
+        # Ensure method is a string
         method = rec.get("method", "")
         if isinstance(method, (list, tuple)):
             method = ",".join(str(m) for m in method)
         elif method is None:
             method = ""
 
-        # Confidence as float, formatted
+        # Format confidence as float if possible
         confidence = rec.get("confidence", "")
         if confidence != "":
             try:
-                confidence = f"{float(confidence):.2f}"
+                conf_val = float(confidence)
+                confidence_fmt = f"{conf_val:.2f}"
             except Exception:
-                pass
+                conf_val = None
+                confidence_fmt = str(confidence)
+        else:
+            conf_val = None
+            confidence_fmt = ""
 
-        # Only the minimal columns
+        endpoint = str(rec.get("endpoint", ""))
+        source = str(rec.get("source", ""))
+
+        # Highlight high-confidence endpoints
+        endpoint_style = col_styles["endpoint"]
+        if conf_val is not None and conf_val >= 0.90:
+            endpoint_style += " bold underline"
+
+        # Use rich markup for colored output
         row = [
-            str(rec.get("endpoint", "")),
-            method,
-            confidence,
-            str(rec.get("source", "")),
-            location
+            f"[{endpoint_style}]{endpoint}[/]" if endpoint else "",
+            f"[{col_styles['method']}]{method}[/]" if method else "",
+            f"[{col_styles['confidence']}]{confidence_fmt}[/]" if confidence_fmt else "",
+            f"[{col_styles['source']}]{source}[/]" if source else "",
+            f"[{col_styles['location']}]{location}[/]" if location else "",
         ]
         table.add_row(*row)
     Console().print(table)
 
-# --- For other outputs, keep all columns and flatten extras as before ---
+# --- Helpers for CSV/Markdown/JSON/Postman ---
 
 def get_columns(records, preferred=None):
+    """
+    Return a list of all keys found in records, with preferred order.
+    Flattens any 'extra' dict keys as 'extra.<key>'.
+    """
     all_keys = set()
     for rec in records:
         all_keys.update(rec.keys())
+        # Flatten any extra fields as columns: extra.foo -> 'extra.foo'
         if "extra" in rec and isinstance(rec["extra"], dict):
             all_keys.update(f"extra.{k}" for k in rec["extra"].keys())
     preferred = preferred or []
+    # Preferred columns first, rest sorted at the end
     columns = [col for col in preferred if col in all_keys]
     extra_cols = sorted(k for k in all_keys if k not in columns)
     return columns + extra_cols
 
 def flatten_row(rec, columns):
+    """
+    Build a flat row for output, flattening extras and joining lists.
+    """
     row = []
     for col in columns:
         if col.startswith("extra."):
@@ -88,6 +146,9 @@ def flatten_row(rec, columns):
     return row
 
 def render_json(records, output=None):
+    """
+    Render records as pretty-printed JSON.
+    """
     text = json.dumps(records, indent=2)
     if output:
         with open(output, "w", encoding="utf-8") as f:
@@ -96,6 +157,10 @@ def render_json(records, output=None):
         print(text)
 
 def render_csv(records, output=None):
+    """
+    Render records as CSV with consistent columns.
+    All fields (including extras) are present.
+    """
     if not records:
         print("No endpoints found.")
         return
@@ -116,6 +181,10 @@ def render_csv(records, output=None):
         f.close()
 
 def render_markdown(records, output=None):
+    """
+    Render records as a GitHub-flavored markdown table.
+    All fields (including extras) are present.
+    """
     if not records:
         print("No endpoints found.")
         return
@@ -138,6 +207,9 @@ def render_markdown(records, output=None):
         print(output_text)
 
 def render_postman(records, output=None):
+    """
+    Render records as a Postman collection (v2.1.0).
+    """
     collection = {
         "info": {
             "name": "Endpoint Discovery",

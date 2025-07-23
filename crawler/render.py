@@ -1,5 +1,3 @@
-# crawler/render.py
-
 """
 Rendering logic for endpoint discovery.
 Provides functions to output records in various formats:

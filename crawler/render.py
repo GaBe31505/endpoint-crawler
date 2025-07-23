@@ -2,8 +2,10 @@
 Rendering logic for endpoint discovery.
 
 - CLI: minimal, modern, colorized table for human scanning (Rich).
-  Location column: filename (not full path) + line, one per line, for readability.
-- CSV/Markdown/JSON/Postman: all columns, flattened extras, full paths preserved.
+  - One row per endpoint-location pair.
+  - Location: filename (not full path) + line, for readability.
+- CSV/Markdown: one row per endpoint-location pair, full paths/lines preserved.
+- JSON/Postman: all columns, locations as lists (aggregated).
 """
 
 import os
@@ -14,7 +16,27 @@ import json
 import csv
 import sys
 
-# Columns to display in the CLI table
+# --- Helper: Expand Records for "Exploded" Outputs ---
+
+def expand_records(records):
+    """
+    For CLI/CSV/Markdown: make one row per endpoint-location pair.
+    If 'location' is a list, emit multiple records (one per location).
+    """
+    expanded = []
+    for rec in records:
+        loc = rec.get("location")
+        if isinstance(loc, list):
+            for single_loc in loc:
+                new_rec = rec.copy()
+                new_rec["location"] = single_loc
+                expanded.append(new_rec)
+        else:
+            expanded.append(rec)
+    return expanded
+
+# --- CLI Output: Short Filename, One Row Per Location ---
+
 PREFERRED_CLI = [
     "endpoint", "method", "confidence", "source", "location"
 ]
@@ -22,33 +44,27 @@ PREFERRED_CLI = [
 def format_location_multiline(loc):
     """
     For CLI, show only the filename (not full path) for readability.
-    - If list, each entry (file or file:line) is on its own line, showing only filename.
-    - If tuple, show filename:line.
-    - If single path, show only the basename.
-    - All original data is retained for file outputs.
+    - If (file, line) tuple/list: show as filename:line.
+    - If just a path: show basename.
+    - Only one location per row (handled in expand_records).
     """
-    def short(x):
-        # For (file, line) tuples/lists
-        if isinstance(x, (tuple, list)) and len(x) == 2:
-            return f"{os.path.basename(x[0])}:{x[1]}"
-        # For just a file (path)
-        return os.path.basename(str(x))
-    if isinstance(loc, list):
-        return "\n".join(short(x) for x in loc)
-    elif isinstance(loc, (tuple, list)) and len(loc) == 2:
-        return short(loc)
+    if isinstance(loc, (tuple, list)) and len(loc) == 2:
+        return f"{os.path.basename(loc[0])}:{loc[1]}"
     return os.path.basename(str(loc))
 
 def render_cli(records):
     """
     Render a modern, readable CLI table of endpoints using Rich.
-    - One row per endpoint+location pair, even if the endpoint repeats.
+    - One row per endpoint+location pair (exploded).
+    - Short, human-friendly filename in the location column.
     - Colorful, no banding, all fields shown, NO truncation.
-    - Location column is always a single filename:line per row.
     """
     if not records:
         print("No endpoints found.")
         return
+
+    # Explode records so each row has one location
+    records = expand_records(records)
 
     table = Table(
         show_header=True,
@@ -73,22 +89,8 @@ def render_cli(records):
             no_wrap=False
         )
 
-    # EXPAND: one row per location (classic behavior)
-    expanded_records = []
     for rec in records:
-        loc = rec.get("location", f"{rec.get('file','')}:{rec.get('line','')}")
-        # If the location is a list, create a row for each item
-        if isinstance(loc, list):
-            for single_loc in loc:
-                new_rec = rec.copy()
-                new_rec["location"] = single_loc
-                expanded_records.append(new_rec)
-        else:
-            rec["location"] = loc
-            expanded_records.append(rec)
-
-    for rec in expanded_records:
-        location = format_location_multiline(rec["location"])
+        location = format_location_multiline(rec.get("location", f"{rec.get('file','')}:{rec.get('line','')}"))
         method = rec.get("method", "")
         if isinstance(method, (list, tuple)):
             method = ",".join(str(m) for m in method)
@@ -123,7 +125,7 @@ def render_cli(records):
         table.add_row(*row)
     Console().print(table)
 
-# --- Helpers for file outputs ---
+# --- Helpers for Column and Row Handling (All Outputs) ---
 
 def get_columns(records, preferred=None):
     """
@@ -158,28 +160,23 @@ def flatten_row(rec, columns):
         row.append(str(val) if val is not None else "")
     return row
 
-def render_json(records, output=None):
-    """
-    Render records as pretty-printed JSON.
-    """
-    text = json.dumps(records, indent=2)
-    if output:
-        with open(output, "w", encoding="utf-8") as f:
-            f.write(text)
-    else:
-        print(text)
+# --- CSV Output: Exploded ---
 
 def render_csv(records, output=None):
     """
     Render records as CSV with consistent columns.
+    One row per endpoint-location (exploded).
     All fields (including extras) are present, full paths/lines are preserved.
     """
+    # Explode records before writing
+    records = expand_records(records)
+
     if not records:
         print("No endpoints found.")
         return
     preferred = [
         "endpoint", "method", "confidence", "source",
-        "controller", "line", "file"
+        "controller", "line", "file", "location"
     ]
     columns = get_columns(records, preferred)
     if output:
@@ -193,17 +190,23 @@ def render_csv(records, output=None):
     if output:
         f.close()
 
+# --- Markdown Output: Exploded ---
+
 def render_markdown(records, output=None):
     """
     Render records as a GitHub-flavored markdown table.
+    One row per endpoint-location (exploded).
     All fields (including extras) are present, full paths/lines are preserved.
     """
+    # Explode records before writing
+    records = expand_records(records)
+
     if not records:
         print("No endpoints found.")
         return
     preferred = [
         "endpoint", "method", "confidence", "source",
-        "controller", "line", "file"
+        "controller", "line", "file", "location"
     ]
     columns = get_columns(records, preferred)
     lines = []
@@ -219,9 +222,26 @@ def render_markdown(records, output=None):
     else:
         print(output_text)
 
+# --- JSON Output: Aggregated (Not Exploded) ---
+
+def render_json(records, output=None):
+    """
+    Render records as pretty-printed JSON.
+    Aggregated: locations as lists.
+    """
+    text = json.dumps(records, indent=2)
+    if output:
+        with open(output, "w", encoding="utf-8") as f:
+            f.write(text)
+    else:
+        print(text)
+
+# --- Postman Output: Aggregated (Not Exploded) ---
+
 def render_postman(records, output=None):
     """
     Render records as a Postman collection (v2.1.0).
+    Aggregated: locations as lists.
     """
     collection = {
         "info": {
